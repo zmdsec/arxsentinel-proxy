@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ArxSentinel Proxy</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 10px; }
+    input[type="text"] { width: 100%; padding: 10px; font-size: 16px; margin-bottom: 12px; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    iframe { width: 100%; height: 80vh; border: 1px solid #ccc; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>ArxSentinel Proxy</h1>
+  <p>Digite a URL que deseja acessar com bloqueio de anúncios:</p>
+  <input type="text" id="urlInput" placeholder="https://exemplo.com" />
+  <button onclick="carregar()">Carregar site limpo</button>
+  <iframe id="proxyFrame" src="" sandbox="allow-scripts allow-same-origin"></iframe>
+
+  <script>
+    function carregar() {
+      const url = document.getElementById('urlInput').value.trim();
+      if (!url) {
+        alert('Por favor, digite uma URL válida.');
+        return;
+      }
+      const proxyUrl = '/proxy?url=' + encodeURIComponent(url);
+      const iframe = document.getElementById('proxyFrame');
+      iframe.src = proxyUrl;
+    }
+  </script>
+</body>
+</html>
