@@ -1,4 +1,4 @@
-// index.js (ArxSentinel v1.8 + ArxCortex v1.3)
+// src/index.js (ArxSentinel v1.8 + ArxCortex v1.3 corrigido)
 
 const express = require('express');
 const cors = require('cors');
@@ -9,17 +9,16 @@ const rateLimit = require('express-rate-limit');
 const NodeCache = require('node-cache');
 const URL = require('url-parse');
 const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const cache = new NodeCache({ stdTTL: 600 });
 
-// Middleware de segurança
 app.use(helmet());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 app.use(cors({ origin: '*', methods: ['GET'] }));
 
-// Padrões de bloqueio
 const blockPatterns = [
   /googlesyndication/i,
   /doubleclick/i,
@@ -33,7 +32,6 @@ const blockPatterns = [
 
 const whiteClassHints = ["main", "content", "article", "body", "texto"];
 
-// Função de pontuação de elementos
 function scoreElemento(el) {
   try {
     let score = 0;
@@ -45,7 +43,6 @@ function scoreElemento(el) {
     if (keywords.some(w => txt.includes(w))) score += 3;
     if (["iframe", "script", "aside", "section"].includes(tag)) score += 2;
     if (el.getAttributeNames?.()?.some(a => /onload|onclick|onmouseover|onerror/.test(a))) score += 2;
-
     const style = el.style || {};
     if (style.zIndex > 100 || style.position === "fixed") score += 2;
     if (el.offsetHeight < 120 || el.offsetWidth < 300) score += 2;
@@ -57,7 +54,6 @@ function scoreElemento(el) {
   }
 }
 
-// Função que sanitiza o HTML
 function sanitizeHTML(html) {
   const dom = new JSDOM(html);
   const { document } = dom.window;
@@ -67,24 +63,30 @@ function sanitizeHTML(html) {
       const className = el.className?.toLowerCase?.() || "";
       if (whiteClassHints.some(hint => className.includes(hint))) return;
       const score = scoreElemento(el);
-      if (score >= 5) {
+      if (score >= 8) { // menos agressivo
         el.setAttribute("data-arx-hidden", "true");
         el.style.display = "none";
       }
     } catch (e) {}
   });
 
-  // Injetar ArxCortex v1.3 no HTML
-  const clientScriptContent = fs.readFileSync(__dirname + '/arxCortex.client.js', 'utf8');
-  const clientScript = `<script>${clientScriptContent}</script>`;
-  return dom.serialize().replace('</body>', `${clientScript}</body>`);
+  // Injeta script da IA (ArxCortex)
+  const scriptPath = path.join(__dirname, 'arxCortex.client.js');
+  let clientScript = '';
+  try {
+    clientScript = fs.readFileSync(scriptPath, 'utf8');
+  } catch (e) {
+    console.warn("[WARN] Não foi possível carregar ArxCortex.client.js");
+  }
+
+  const serialized = dom.serialize();
+  if (!serialized.includes('</body>')) return serialized + `<script>${clientScript}</script>`;
+  return serialized.replace('</body>', `<script>${clientScript}</script></body>`);
 }
 
-// Rota do proxy
 app.get('/proxy', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).send('URL não fornecida.');
-
   const urlObj = new URL(url);
   if (!['http:', 'https:'].includes(urlObj.protocol)) return res.status(400).send('Protocolo inválido.');
 
@@ -101,7 +103,7 @@ app.get('/proxy', async (req, res) => {
     cache.set(cacheKey, clean);
     res.send(clean);
   } catch (err) {
-    console.error("Erro ao buscar/processar conteúdo:", err.message);
+    console.error("Erro ao processar:", err.message);
     res.status(500).send('Erro ao buscar ou processar o conteúdo.');
   }
 });
