@@ -15,16 +15,20 @@
       "chapter-content", "manga-image", "reader", "comic",
       "cookie-consent", "cookie-notice", "accept-cookies",
       "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
-      "accept-all", "cookie-accept", "consent-button", "cookie-btn",
-      "cookiebar", "cookie-policy", "consent-popup", "gdpr-notice", // Adicionados
+      "cookiebar", "cookie-policy", "consent-popup", "gdpr-notice",
       "image-container", "manga-page", "reader-image",
       "reader-area", "chapter-image", "manga-reader", "chapter-container",
       "news", "noticia", "headline"
     ],
-    navigationClasses: [ // Adicionado
+    navigationClasses: [
       "nav", "menu", "navbar", "nav-link", "menu-item",
       "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
-      "news-title", "headline-link", "article-link"
+      "news-title", "headline-link", "article-link",
+      "works-link", "obras-link", "manga-list", "series-link", "manga-menu" // Adicionados
+    ],
+    trustedPaths: [ // Adicionado
+      /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/,
+      /\/series/, /\/works/, /\/home/, /\/index/
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
@@ -35,35 +39,31 @@
       /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
       /content\.manhastro\.net$/, /assets\.manhastro\.net$/,
       /img\.manhastro\.net$/, /chapter\.manhastro\.net$/,
-      /media2\.manhastro\.net$/, /images\.manhastro\.net$/, // Adicionados
-      /g1\.globo\.com$/
+      /media2\.manhastro\.net$/, /images\.manhastro\.net$/,
+      /g1\.globo\.com$/, /globo\.com$/, /noticias\.globo\.com$/
     ],
     maliciousPatterns: [
       /eval\(/i,
       /Function\(/i,
       /document\.createElement\s*\(\s*['"]script['"]/i,
-      /window\.location\s*=\s*['"]http/i,
       /window\.open/i,
-      /setTimeout\s*\(\s*function/i,
-      /setInterval\s*\(\s*function/i,
-      /location\.reload/i,
       /document\.write/i,
       /requestAnimationFrame/i,
       /Promise\.resolve/i
     ],
     heuristicWeights: {
-      keywords: 4, // Aumentado
-      tags: { iframe: 2, aside: 2, script: 0.8, a: 0.3, img: 0, div: 0.1, section: 0.1 }, // Ajustado
+      keywords: 4,
+      tags: { iframe: 2, aside: 2, script: 0.8, a: 0.3, img: 0, div: 0.1, section: 0.1 },
       events: 1,
       styles: 1.5,
       size: 1.5,
-      patterns: 5, // Aumentado
-      malicious: 15, // Aumentado
-      trustedDomain: -3 // Adicionado: reduz pontuação pra trustedDomains
+      patterns: 5,
+      malicious: 15,
+      trustedDomain: -3
     },
     proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.12',
+    version: '1.4.13',
     brand: 'Arx Intel'
   };
 
@@ -89,12 +89,12 @@
 
       if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
 
-      if (src && (src.startsWith('data:image/') || config.trustedDomains.some(rx => rx.test(new URL(src, window.location.href).hostname)))) {
-        return config.heuristicWeights.trustedDomain; // Reduz pontuação
+      if (src && (src.startsWith('data:image/') || config.trustedDomains.some(rx => rx.test(new URL(src, window.location.href).hostname)) || config.trustedPaths.some(rx => rx.test(src)))) {
+        return config.heuristicWeights.trustedDomain;
       }
       if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
       if (config.whitelist.some(w => className.includes(w))) return 0;
-      if (tag === 'a' && config.navigationClasses.some(c => className.includes(c))) return 0; // Preservar links de navegação
+      if (tag === 'a' && (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(src)))) return 0;
 
       let score = 0;
       if (config.keywords.some(w => txt.includes(w))) score += config.heuristicWeights.keywords;
@@ -119,7 +119,7 @@
     for (const el of elements) {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whitelist.some(w => className.includes(w))) continue;
-      if (el.tagName.toLowerCase() === 'a' && config.navigationClasses.some(c => className.includes(c))) continue; // Preservar links de navegação
+      if (el.tagName.toLowerCase() === 'a' && (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(el.getAttribute('href') || '')))) continue;
 
       const score = await scoreElemento(el);
       if (score >= 5) {
@@ -130,7 +130,6 @@
     }
     console.log(`[${config.brand}] Bloqueados ${blockedCount} elementos`);
 
-    // Monitorar imagens
     document.querySelectorAll('img').forEach(img => {
       img.onerror = () => {
         console.warn(`[${config.brand}] Falha ao carregar imagem: ${img.src}`);
@@ -152,9 +151,9 @@
         'button[class*="cookie"], button[class*="consent"], button[class*="accept"], button[class*="gdpr"], button[class*="privacy"], button[class*="cookie-accept"], button[class*="accept-all"], button[class*="cookie-btn"]',
         'a[class*="cookie"], a[class*="consent"], a[class*="accept"]',
         'div[class*="cookie"][role="button"], div[class*="consent"][role="button"]',
-        'button:contains("Aceitar"), button:contains("Accept"), button:contains("Consent"), button:contains("OK"), button:contains("Agree"), button:contains("Confirmar")',
-        '[aria-label*="cookie"], [aria-label*="consent"], [aria-label*="accept"]', // Adicionados
-        '[data-consent], [data-cookie], [data-gdpr], [data-privacy]' // Adicionados
+        'button:contains("Aceitar"), button:contains("Accept"), button:contains("Consent"), button:contains("OK"), button:contains(" Agree"), button:contains("Confirmar")',
+        '[aria-label*="cookie"], [aria-label*="consent"], [aria-label*="accept"]',
+        '[data-consent], [data-cookie], [data-gdpr], [data-privacy]'
       ].join(', ');
 
       const cookieButtons = document.querySelectorAll(selectors);
@@ -210,7 +209,7 @@
         configurable: true,
         set(value) {
           const urlObj = new URL(value, window.location.href);
-          if (config.blockPatterns.some(rx => rx.test(value)) || (!config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && !value.startsWith('/'))) {
+          if (config.blockPatterns.some(rx => rx.test(value)) || (!config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && !config.trustedPaths.some(rx => rx.test(urlObj.pathname)))) {
             console.warn(`[${config.brand}] Redirecionamento bloqueado: ${value}`);
             return;
           }
@@ -226,7 +225,7 @@
       document.addEventListener(event, e => {
         const target = e.target.closest('a[target="_blank"], [onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [data-href]');
         if (target) {
-          const href = target.href || 
+          const href = target.href ||
                        target.getAttribute('data-href') ||
                        target.getAttribute('onclick')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onmouseover')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
@@ -235,19 +234,20 @@
                        target.getAttribute('onunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onbeforeunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
           if (href) {
-            const urlObj = new URL(href, window.location.href);
-            if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || href.startsWith('/')) {
-              const newHref = href.startsWith('/') ? config.proxyBase + encodeURIComponent(new URL(href, window.location.origin).href) : href;
+            const decodedHref = decodeURIComponent(href); // Decodificar href
+            const urlObj = new URL(decodedHref, window.location.href);
+            if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
+              const newHref = decodedHref.startsWith('/') ? config.proxyBase + encodeURIComponent(new URL(decodedHref, window.location.origin).href) : decodedHref;
               target.href = newHref;
-              console.log(`[${config.brand}] Link de navegação reescrito pelo proxy: ${newHref}`);
-              if (target.getAttribute('onclick') && config.navigationClasses.some(c => target.className?.toLowerCase?.().includes(c))) {
+              console.log(`[${config.brand}] Link de navegação reescrito pelo proxy: ${decodedHref} -> ${newHref}`);
+              if (target.getAttribute('onclick') && (config.navigationClasses.some(c => target.className?.toLowerCase?.().includes(c)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname)))) {
                 console.log(`[${config.brand}] Evento onclick preservado para navegação: ${target.getAttribute('onclick').slice(0, 50)}...`);
-                return; // Preservar onclick de navegação
+                return;
               }
             } else {
               e.preventDefault();
               e.stopPropagation();
-              console.log(`[${config.brand}] Ação externa bloqueada: ${href}`);
+              console.log(`[${config.brand}] Ação externa bloqueada: ${decodedHref}`);
             }
           }
         }
@@ -294,14 +294,15 @@
     window.fetch = async function (...args) {
       const url = args[0];
       if (typeof url === 'string') {
-        const urlObj = new URL(url, window.location.href);
-        if (config.blockPatterns.some(rx => rx.test(url)) && !config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
-          console.warn(`[${config.brand}] Requisição bloqueada: ${url}`);
+        const decodedUrl = decodeURIComponent(url); // Decodificar URL
+        const urlObj = new URL(decodedUrl, window.location.href);
+        if (config.blockPatterns.some(rx => rx.test(decodedUrl)) && !config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+          console.warn(`[${config.brand}] Requisição bloqueada: ${decodedUrl}`);
           return new Response(null, { status: 403 });
         }
-        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
-          console.log(`[${config.brand}] Requisição de imagem ou script permitida: ${url}`);
-          return origFetch(...args);
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
+          console.log(`[${config.brand}] Requisição de imagem ou script permitida: ${decodedUrl}`);
+          return origFetch(decodedUrl, args[1]);
         }
       }
       return origFetch(...args);
@@ -311,14 +312,15 @@
     XMLHttpRequest.prototype.open = function (...args) {
       const url = args[1];
       if (typeof url === 'string') {
-        const urlObj = new URL(url, window.location.href);
-        if (config.blockPatterns.some(rx => rx.test(url)) && !config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
-          console.warn(`[${config.brand}] Requisição XHR bloqueada: ${url}`);
+        const decodedUrl = decodeURIComponent(url); // Decodificar URL
+        const urlObj = new URL(decodedUrl, window.location.href);
+        if (config.blockPatterns.some(rx => rx.test(decodedUrl)) && !config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+          console.warn(`[${config.brand}] Requisição XHR bloqueada: ${decodedUrl}`);
           return;
         }
-        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
-          console.log(`[${config.brand}] Requisição XHR permitida: ${url}`);
-          return origXhrOpen.apply(this, args);
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
+          console.log(`[${config.brand}] Requisição XHR permitida: ${decodedUrl}`);
+          return origXhrOpen.apply(this, [args[0], decodedUrl, ...args.slice(2)]);
         }
       }
       return origXhrOpen.apply(this, args);
