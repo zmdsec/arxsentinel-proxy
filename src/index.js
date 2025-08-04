@@ -29,14 +29,16 @@ const config = {
     "wrapper", "container", "root",
     "cookie-consent", "cookie-notice", "accept-cookies",
     "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
-    "image-container", "manga-page", "reader-image" // Adicionado pra manhwa
+    "image-container", "manga-page", "reader-image",
+    "reader-area", "chapter-image" // Adicionado pra manhastro.net
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
     /webtoons\.com$/, /mangakakalot\.com$/, /readmanganato\.com$/,
     /mangadex\.org$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/,
     /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
-    /img\./, /images\./, /static\./ // Adicionado pra imagens
+    /img\./, /images\./, /static\./,
+    /manhastro\.net$/, /cdn\.manhastro\.net$/ // Adicionado pra manhastro.net
   ],
   maliciousPatterns: [
     /eval\(/i,
@@ -49,7 +51,7 @@ const config = {
   ],
   brand: {
     name: 'Arx Intel',
-    version: '1.9.5',
+    version: '1.9.6',
     website: 'https://arxintel.com'
   }
 };
@@ -72,8 +74,8 @@ function scoreElemento(el, targetUrl) {
     if (config.whiteClassHints.some(hint => el.className?.toLowerCase?.().includes(hint))) return 0;
 
     if (config.keywords.some(w => txt.includes(w))) score += 3;
-    if (["iframe", "aside", "section", "script", "a"].includes(tag)) score += tag === 'section' ? 0.5 : 1.5;
-    if (tag === 'img') score += 0.2; // Baixo peso pra imagens
+    if (["iframe", "aside", "section", "script", "a"].includes(tag)) score += tag === 'section' || tag === 'div' ? 0.3 : 1.5;
+    if (tag === 'img') score += 0; // Ignorar imagens
     if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error|focus|blur|unload|beforeunload|pagehide)/.test(a))) score += 1;
     const style = el.style || {};
     if (style.position === "fixed" || parseInt(style.zIndex) > 100) score += 1.5;
@@ -95,7 +97,7 @@ function sanitizeHTML(html, targetUrl) {
 
   // Bloquear scripts e links maliciosos
   let blockedCount = 0;
-  document.querySelectorAll('script, iframe, a[href], a[data-href], div, aside, section, img').forEach(el => {
+  document.querySelectorAll('script, iframe, a[href], a[data-href], div, aside, section').forEach(el => {
     try {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whiteClassHints.some(hint => className.includes(hint))) return;
@@ -109,6 +111,8 @@ function sanitizeHTML(html, targetUrl) {
             blockedCount++;
             return;
           }
+          // Preservar scripts de manhastro.net
+          if (src && /manhastro\.net/.test(new URL(src, targetUrl).hostname)) return;
         }
         if (el.tagName.toLowerCase() === 'a' && (el.href || el.getAttribute('data-href'))) {
           const href = el.href || el.getAttribute('data-href');
@@ -147,6 +151,7 @@ function sanitizeHTML(html, targetUrl) {
           el.setAttribute(attr, `${baseProxy}${encodeURIComponent(absolute)}`);
         } catch (e) {
           console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url}`);
+          el.setAttribute(attr, 'javascript:void(0)'); // Evitar quebra
         }
       }
     });
@@ -197,7 +202,7 @@ app.get('/proxy', async (req, res) => {
       timeout: 15000,
       headers: {
         'User-Agent': `ArxSentinel/${config.brand.version}`,
-        'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,*/*',
+        'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,image/*,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5'
       }
     });
