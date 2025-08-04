@@ -24,11 +24,13 @@
       "nav", "menu", "navbar", "nav-link", "menu-item",
       "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
       "news-title", "headline-link", "article-link",
-      "works-link", "obras-link", "manga-list", "series-link", "manga-menu" // Adicionados
+      "works-link", "obras-link", "manga-list", "series-link", "manga-menu",
+      "main-nav", "series-menu", "category-link", "nav-item", "menu-link" // Adicionados
     ],
-    trustedPaths: [ // Adicionado
+    trustedPaths: [
       /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/,
-      /\/series/, /\/works/, /\/home/, /\/index/
+      /\/series/, /\/works/, /\/home/, /\/index/, /\/catalog/, /\/library/,
+      /\/mangas/, /\/archive/ // Adicionados
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
@@ -51,19 +53,9 @@
       /requestAnimationFrame/i,
       /Promise\.resolve/i
     ],
-    heuristicWeights: {
-      keywords: 4,
-      tags: { iframe: 2, aside: 2, script: 0.8, a: 0.3, img: 0, div: 0.1, section: 0.1 },
-      events: 1,
-      styles: 1.5,
-      size: 1.5,
-      patterns: 5,
-      malicious: 15,
-      trustedDomain: -3
-    },
     proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.13',
+    version: '1.4.14',
     brand: 'Arx Intel'
   };
 
@@ -118,14 +110,23 @@
     let blockedCount = 0;
     for (const el of elements) {
       const className = el.className?.toLowerCase?.() || "";
+      const href = el.getAttribute('href') || '';
       if (config.whitelist.some(w => className.includes(w))) continue;
-      if (el.tagName.toLowerCase() === 'a' && (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(el.getAttribute('href') || '')))) continue;
+      if (el.tagName.toLowerCase() === 'a' && (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(href)))) {
+        const decodedHref = decodeURIComponent(href);
+        const urlObj = new URL(decodedHref, window.location.href);
+        const newHref = decodedHref.startsWith('/') ? config.proxyBase + encodeURIComponent(urlObj.href) : decodedHref;
+        el.href = newHref;
+        console.log(`[${config.brand}] Link preservado: ${href} -> ${newHref}`);
+        continue;
+      }
 
       const score = await scoreElemento(el);
       if (score >= 5) {
         el.setAttribute("data-arx-hidden", "true");
         el.style.display = "none";
         blockedCount++;
+        console.log(`[${config.brand}] Elemento bloqueado: ${el.tagName.toLowerCase()} - ${href || el.src || 'inline'} (score: ${score})`);
       }
     }
     console.log(`[${config.brand}] Bloqueados ${blockedCount} elementos`);
@@ -221,23 +222,18 @@
       });
     });
 
-    ['click', 'mouseover', 'focus', 'blur', 'unload', 'beforeunload', 'pagehide'].forEach(event => {
+    ['click'].forEach(event => {
       document.addEventListener(event, e => {
-        const target = e.target.closest('a[target="_blank"], [onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [data-href]');
+        const target = e.target.closest('a[target="_blank"], [onclick], [data-href]');
         if (target) {
           const href = target.href ||
                        target.getAttribute('data-href') ||
-                       target.getAttribute('onclick')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
-                       target.getAttribute('onmouseover')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
-                       target.getAttribute('onfocus')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
-                       target.getAttribute('onblur')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
-                       target.getAttribute('onunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
-                       target.getAttribute('onbeforeunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
+                       target.getAttribute('onclick')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
           if (href) {
-            const decodedHref = decodeURIComponent(href); // Decodificar href
+            const decodedHref = decodeURIComponent(href);
             const urlObj = new URL(decodedHref, window.location.href);
             if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
-              const newHref = decodedHref.startsWith('/') ? config.proxyBase + encodeURIComponent(new URL(decodedHref, window.location.origin).href) : decodedHref;
+              const newHref = decodedHref.startsWith('/') ? config.proxyBase + encodeURIComponent(urlObj.href) : decodedHref;
               target.href = newHref;
               console.log(`[${config.brand}] Link de navegação reescrito pelo proxy: ${decodedHref} -> ${newHref}`);
               if (target.getAttribute('onclick') && (config.navigationClasses.some(c => target.className?.toLowerCase?.().includes(c)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname)))) {
@@ -247,7 +243,7 @@
             } else {
               e.preventDefault();
               e.stopPropagation();
-              console.log(`[${config.brand}] Ação externa bloqueada: ${decodedHref}`);
+              console.log(`[${config.brand}] Ação externa bloqueada: ${decodedHref} (motivo: domínio não confiável ou padrão de bloqueio)`);
             }
           }
         }
@@ -294,7 +290,7 @@
     window.fetch = async function (...args) {
       const url = args[0];
       if (typeof url === 'string') {
-        const decodedUrl = decodeURIComponent(url); // Decodificar URL
+        const decodedUrl = decodeURIComponent(url);
         const urlObj = new URL(decodedUrl, window.location.href);
         if (config.blockPatterns.some(rx => rx.test(decodedUrl)) && !config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
           console.warn(`[${config.brand}] Requisição bloqueada: ${decodedUrl}`);
@@ -312,7 +308,7 @@
     XMLHttpRequest.prototype.open = function (...args) {
       const url = args[1];
       if (typeof url === 'string') {
-        const decodedUrl = decodeURIComponent(url); // Decodificar URL
+        const decodedUrl = decodeURIComponent(url);
         const urlObj = new URL(decodedUrl, window.location.href);
         if (config.blockPatterns.some(rx => rx.test(decodedUrl)) && !config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
           console.warn(`[${config.brand}] Requisição XHR bloqueada: ${decodedUrl}`);
@@ -353,12 +349,12 @@
       window.__arxDelay = setTimeout(async () => {
         await limparAds();
         await acceptCookies();
-      }, 200);
+      }, 1000); // Aumentado pra 1000ms pra evitar bloqueio precoce
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true });
   }
 
-  limparAds();
+  setTimeout(() => limparAds(), 500); // Delay inicial pra evitar bloqueio precoce
   setTimeout(() => acceptCookies(), 1000);
   setTimeout(() => acceptCookies(), 2000);
   setTimeout(() => acceptCookies(), 4000);
