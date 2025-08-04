@@ -21,7 +21,7 @@ const config = {
     /outbrain/i,
     /facebook.net/i,
     /analytics/i,
-    /track|ad|sponsored|banner|pixel|beacon|impression|click/i // Removido /politica/ e /noticia/ se existirem
+    /track|ad|sponsored|banner|pixel|beacon|impression|click/i
   ],
   whiteClassHints: [
     "main", "content", "article", "body", "texto",
@@ -36,7 +36,11 @@ const config = {
   navigationClasses: [
     "nav", "menu", "navbar", "nav-link", "menu-item",
     "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
-    "news-title", "headline-link", "article-link"
+    "news-title", "headline-link", "article-link",
+    "works-link", "obras-link", "manga-list" // Adicionados pra /obras
+  ],
+  trustedPaths: [ // Adicionado
+    /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
@@ -48,7 +52,7 @@ const config = {
     /content\.manhastro\.net$/, /assets\.manhastro\.net$/,
     /img\.manhastro\.net$/, /chapter\.manhastro\.net$/,
     /media2\.manhastro\.net$/, /images\.manhastro\.net$/,
-    /g1\.globo\.com$/, /globo\.com$/ // Adicionado globo.com
+    /g1\.globo\.com$/, /globo\.com$/
   ],
   maliciousPatterns: [
     /eval\(/i,
@@ -62,7 +66,7 @@ const config = {
   proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
   brand: {
     name: 'Arx Intel',
-    version: '1.9.13',
+    version: '1.9.14',
     website: 'https://arxintel.com'
   },
   heuristicWeights: {
@@ -96,7 +100,7 @@ function scoreElemento(el, targetUrl) {
     }
     if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
     if (config.whiteClassHints.some(hint => className.includes(hint))) return 0;
-    if (tag === 'a' && config.navigationClasses.some(c => className.includes(c))) return 0;
+    if (tag === 'a' && (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(src)))) return 0; // Adicionado trustedPaths
 
     if (config.keywords.some(w => txt.includes(w))) score += config.heuristicWeights.keywords;
     if (["iframe", "aside"].includes(tag)) score += config.heuristicWeights.tags[tag] || 0;
@@ -168,13 +172,13 @@ function sanitizeHTML(html, targetUrl) {
       if (!url) return;
       if (url.startsWith('data:image/')) return;
       try {
-        const decodedUrl = decodeURIComponent(url); // Decodificar URL
+        const decodedUrl = decodeURIComponent(url);
         const urlObj = new URL(decodedUrl, targetUrl);
-        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) { // Adicionado trustedPaths
           if (el.tagName.toLowerCase() === 'img' || (el.tagName.toLowerCase() === 'script' && /reader\.js|lazyload\.js|image-loader|manga-loader/.test(url))) {
             el.setAttribute(attr, urlObj.href);
             console.log(`[${config.brand.name}] URL preservada: ${url}`);
-          } else if (el.tagName.toLowerCase() === 'a' && config.navigationClasses.some(c => el.className?.toLowerCase?.().includes(c))) {
+          } else if (el.tagName.toLowerCase() === 'a' && (config.navigationClasses.some(c => el.className?.toLowerCase?.().includes(c)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname)))) {
             el.setAttribute(attr, config.proxyBase + encodeURIComponent(urlObj.href));
             console.log(`[${config.brand.name}] Link de navegação reescrito pelo proxy: ${url} -> ${el.getAttribute(attr)}`);
           } else {
@@ -185,7 +189,7 @@ function sanitizeHTML(html, targetUrl) {
           el.setAttribute(attr, 'javascript:void(0)');
           el.setAttribute('data-arx-blocked', 'true');
           blockedCount++;
-          console.log(`[${config.brand.name}] URL bloqueada: ${url} (motivo: domínio não confiável)`);
+          console.log(`[${config.brand.name}] URL bloqueada: ${url} (motivo: domínio não confiável ou padrão de bloqueio)`);
         }
       } catch (e) {
         console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url} - ${e.message}`);
@@ -197,7 +201,7 @@ function sanitizeHTML(html, targetUrl) {
   document.querySelectorAll('[onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [onpagehide]').forEach(el => {
     const events = ['onclick', 'onmouseover', 'onfocus', 'onblur', 'onunload', 'onbeforeunload', 'onpagehide'];
     const urlObj = new URL(targetUrl);
-    if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && config.navigationClasses.some(c => el.className?.toLowerCase?.().includes(c))) {
+    if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && (config.navigationClasses.some(c => el.className?.toLowerCase?.().includes(c)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname)))) {
       console.log(`[${config.brand.name}] Evento preservado para navegação: ${el.getAttribute('onclick')?.slice(0, 50) || 'inline'}...`);
       return;
     }
@@ -230,7 +234,7 @@ app.get('/proxy', async (req, res) => {
   let url = req.query.url;
   if (!url) return res.status(400).send('URL não fornecida.');
   try {
-    url = decodeURIComponent(url); // Decodificar URL do parâmetro
+    url = decodeURIComponent(url);
   } catch (e) {
     console.warn(`[${config.brand.name}] Falha ao decodificar URL: ${url} - ${e.message}`);
     return res.status(400).send('URL inválida.');
@@ -242,8 +246,7 @@ app.get('/proxy', async (req, res) => {
   const cached = cache.get(cacheKey);
   if (cached) return res.send(cached);
 
-  // Verificar trustedDomains antes de bloquear
-  if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+  if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
     console.log(`[${config.brand.name}] URL confiável permitida: ${url}`);
   } else if (config.blockPatterns.some(rx => rx.test(url))) {
     console.log(`[${config.brand.name}] URL bloqueada: ${url} (motivo: padrão de bloqueio)`);
@@ -252,11 +255,13 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const response = await axios.get(url, {
-      timeout: 45000,
+      timeout: 60000, // Aumentado pra 60s
       headers: {
         'User-Agent': `ArxSentinel/${config.brand.version}`,
         'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,image/*,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
+        'Referer': urlObj.origin, // Adicionado
+        'Origin': urlObj.origin, // Adicionado
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
@@ -269,7 +274,7 @@ app.get('/proxy', async (req, res) => {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.send(cleaned);
   } catch (err) {
-    console.error(`[${config.brand.name}] Erro ao processar ${url}:`, err.message);
+    console.error(`[${config.brand.name}] Erro ao carregar a página: ${url} - ${err.message}${err.response ? ` (HTTP ${err.response.status})` : ''}`);
     res.status(500).send('Erro ao buscar ou processar o conteúdo.');
   }
 });
