@@ -30,7 +30,7 @@ const config = {
     "cookie-consent", "cookie-notice", "accept-cookies",
     "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
     "image-container", "manga-page", "reader-image",
-    "reader-area", "chapter-image" // Adicionado pra manhastro.net
+    "reader-area", "chapter-image", "manga-reader", "chapter-container" // Adicionado
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
@@ -38,7 +38,7 @@ const config = {
     /mangadex\.org$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/,
     /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
     /img\./, /images\./, /static\./,
-    /manhastro\.net$/, /cdn\.manhastro\.net$/ // Adicionado pra manhastro.net
+    /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/ // Adicionado
   ],
   maliciousPatterns: [
     /eval\(/i,
@@ -51,7 +51,7 @@ const config = {
   ],
   brand: {
     name: 'Arx Intel',
-    version: '1.9.6',
+    version: '1.9.7',
     website: 'https://arxintel.com'
   }
 };
@@ -74,7 +74,8 @@ function scoreElemento(el, targetUrl) {
     if (config.whiteClassHints.some(hint => el.className?.toLowerCase?.().includes(hint))) return 0;
 
     if (config.keywords.some(w => txt.includes(w))) score += 3;
-    if (["iframe", "aside", "section", "script", "a"].includes(tag)) score += tag === 'section' || tag === 'div' ? 0.3 : 1.5;
+    if (["iframe", "aside", "script", "a"].includes(tag)) score += 1.5;
+    if (["section", "div"].includes(tag)) score += 0.2; // Reduzido pra section, div
     if (tag === 'img') score += 0; // Ignorar imagens
     if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error|focus|blur|unload|beforeunload|pagehide)/.test(a))) score += 1;
     const style = el.style || {};
@@ -97,13 +98,13 @@ function sanitizeHTML(html, targetUrl) {
 
   // Bloquear scripts e links maliciosos
   let blockedCount = 0;
-  document.querySelectorAll('script, iframe, a[href], a[data-href], div, aside, section').forEach(el => {
+  document.querySelectorAll('script, iframe, a[href], a[data-href], aside').forEach(el => {
     try {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whiteClassHints.some(hint => className.includes(hint))) return;
 
       const score = scoreElemento(el, targetUrl);
-      if (score >= 5 && el.tagName.toLowerCase() !== 'img') {
+      if (score >= 5) {
         if (el.tagName.toLowerCase() === 'script') {
           const src = el.src || el.textContent;
           if (config.maliciousPatterns.some(rx => rx.test(src)) || config.blockPatterns.some(rx => rx.test(src))) {
@@ -111,7 +112,6 @@ function sanitizeHTML(html, targetUrl) {
             blockedCount++;
             return;
           }
-          // Preservar scripts de manhastro.net
           if (src && /manhastro\.net/.test(new URL(src, targetUrl).hostname)) return;
         }
         if (el.tagName.toLowerCase() === 'a' && (el.href || el.getAttribute('data-href'))) {
@@ -130,13 +130,22 @@ function sanitizeHTML(html, targetUrl) {
     } catch { }
   });
 
+  // Preservar divs e sections de manhwa
+  document.querySelectorAll('div, section').forEach(el => {
+    const className = el.className?.toLowerCase?.() || "";
+    if (config.whiteClassHints.some(hint => className.includes(hint))) {
+      el.removeAttribute('data-arx-hidden');
+      el.style.display = '';
+    }
+  });
+
   // Reescreve URLs, preservando data:image/
   ['a[href]', 'img[src]', 'script[src]'].forEach(selector => {
     document.querySelectorAll(selector).forEach(el => {
       const attr = el.hasAttribute('href') ? 'href' : 'src';
       let url = el.getAttribute(attr);
       if (!url) return;
-      if (url.startsWith('data:image/')) return; // Preservar imagens data URI
+      if (url.startsWith('data:image/')) return;
       if (url.startsWith('http')) {
         if (!config.trustedDomains.some(rx => rx.test(new URL(url, targetUrl).hostname))) {
           el.setAttribute(attr, 'javascript:void(0)');
@@ -148,10 +157,14 @@ function sanitizeHTML(html, targetUrl) {
       } else if (!url.startsWith('#') && !url.startsWith('javascript:')) {
         try {
           const absolute = new URL(url, baseOrigin).href;
-          el.setAttribute(attr, `${baseProxy}${encodeURIComponent(absolute)}`);
+          if (config.trustedDomains.some(rx => rx.test(new URL(absolute, targetUrl).hostname))) {
+            el.setAttribute(attr, absolute); // Usar URL absoluta diretamente
+          } else {
+            el.setAttribute(attr, `${baseProxy}${encodeURIComponent(absolute)}`);
+          }
         } catch (e) {
           console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url}`);
-          el.setAttribute(attr, 'javascript:void(0)'); // Evitar quebra
+          el.setAttribute(attr, url); // Preservar URL original
         }
       }
     });
@@ -199,7 +212,7 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const response = await axios.get(url, {
-      timeout: 15000,
+      timeout: 20000, // Aumentado pra sites lentos
       headers: {
         'User-Agent': `ArxSentinel/${config.brand.version}`,
         'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,image/*,*/*;q=0.8',
