@@ -40,6 +40,7 @@ const config = {
     /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
     /img\./, /images\./, /static\./,
     /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
+    /content\.manhastro\.net$/, /assets\.manhastro\.net$/, // Adicionados
     /g1\.globo\.com$/
   ],
   maliciousPatterns: [
@@ -51,10 +52,10 @@ const config = {
     /requestAnimationFrame/i,
     /Promise\.resolve/i
   ],
-  proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=', // Adicionado
+  proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
   brand: {
     name: 'Arx Intel',
-    version: '1.9.9',
+    version: '1.9.10',
     website: 'https://arxintel.com'
   }
 };
@@ -77,7 +78,7 @@ function scoreElemento(el, targetUrl) {
     if (config.whiteClassHints.some(hint => el.className?.toLowerCase?.().includes(hint))) return 0;
 
     if (config.keywords.some(w => txt.includes(w))) score += 3;
-    if (["iframe", "aside", "script"].includes(tag)) score += 1.5;
+    if (["iframe", "aside"].includes(tag)) score += 1.5; // Removido script do bloqueio automático
     if (["a"].includes(tag)) score += 0.5;
     if (["section", "div", "img"].includes(tag)) score += 0;
     if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error|focus|blur|unload|beforeunload|pagehide)/.test(a))) score += 1;
@@ -111,9 +112,13 @@ function sanitizeHTML(html, targetUrl) {
           if (config.maliciousPatterns.some(rx => rx.test(src)) || config.blockPatterns.some(rx => rx.test(src))) {
             el.remove();
             blockedCount++;
+            console.log(`[${config.brand.name}] Script bloqueado: ${src || 'inline'}`);
             return;
           }
-          if (src && /manhastro\.net|g1\.globo\.com/.test(new URL(src, targetUrl).hostname)) return;
+          if (src && /manhastro\.net|g1\.globo\.com/.test(new URL(src, targetUrl).hostname)) {
+            console.log(`[${config.brand.name}] Script essencial permitido: ${src}`);
+            return;
+          }
         }
         el.setAttribute("data-arx-hidden", "true");
         el.style.display = "none";
@@ -139,8 +144,13 @@ function sanitizeHTML(html, targetUrl) {
       try {
         const urlObj = new URL(url, targetUrl);
         if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
-          el.setAttribute(attr, config.proxyBase + encodeURIComponent(urlObj.href)); // Forçar proxy
-          console.log(`[${config.brand.name}] URL reescrita pelo proxy: ${url} -> ${el.getAttribute(attr)}`);
+          if (el.tagName.toLowerCase() === 'img' || (el.tagName.toLowerCase() === 'script' && /reader\.js|lazyload/.test(url))) {
+            el.setAttribute(attr, urlObj.href); // Preservar URL original pra imagens e scripts essenciais
+            console.log(`[${config.brand.name}] URL preservada: ${url}`);
+          } else {
+            el.setAttribute(attr, config.proxyBase + encodeURIComponent(urlObj.href));
+            console.log(`[${config.brand.name}] URL reescrita pelo proxy: ${url} -> ${el.getAttribute(attr)}`);
+          }
         } else {
           el.setAttribute(attr, 'javascript:void(0)');
           el.setAttribute('data-arx-blocked', 'true');
@@ -148,7 +158,7 @@ function sanitizeHTML(html, targetUrl) {
           console.log(`[${config.brand.name}] URL bloqueada: ${url}`);
         }
       } catch (e) {
-        console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url}`);
+        console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url} - ${e.message}`);
         el.setAttribute(attr, url);
       }
     });
@@ -195,15 +205,18 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const response = await axios.get(url, {
-      timeout: 20000,
+      timeout: 30000, // Aumentado pra 30s
       headers: {
         'User-Agent': `ArxSentinel/${config.brand.version}`,
         'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,image/*,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5'
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Access-Control-Allow-Origin': '*', // Suporte a CORS
+        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept'
       }
     });
     const cleaned = sanitizeHTML(response.data, url);
     cache.set(cacheKey, cleaned);
+    res.setHeader('Access-Control-Allow-Origin', '*'); // Suporte a CORS
     res.send(cleaned);
   } catch (err) {
     console.error(`[${config.brand.name}] Erro ao processar ${url}:`, err.message);
