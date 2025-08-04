@@ -15,13 +15,15 @@
       "chapter-content", "manga-image", "reader", "comic",
       "cookie-consent", "cookie-notice", "accept-cookies",
       "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
-      "accept-all", "cookie-accept", "consent-button", "cookie-btn"
+      "accept-all", "cookie-accept", "consent-button", "cookie-btn",
+      "image-container", "manga-page", "reader-image" // Adicionado pra manhwa
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
       /webtoons\.com$/, /mangakakalot\.com$/, /readmanganato\.com$/,
       /mangadex\.org$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/,
-      /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./
+      /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
+      /img\./, /images\./, /static\./ // Adicionado pra imagens
     ],
     maliciousPatterns: [
       /eval\(/i,
@@ -32,19 +34,21 @@
       /setTimeout\s*\(\s*function/i,
       /setInterval\s*\(\s*function/i,
       /location\.reload/i,
-      /document\.write/i
+      /document\.write/i,
+      /requestAnimationFrame/i,
+      /Promise\.resolve/i
     ],
     heuristicWeights: {
       keywords: 3,
-      tags: { iframe: 1.5, aside: 1.5, section: 1.5, script: 0.5 },
+      tags: { iframe: 1.5, aside: 1.5, section: 0.5, script: 0.6, a: 1, img: 0.2 }, // Reduzido pra section, img
       events: 1,
       styles: 1.5,
       size: 1.5,
       patterns: 4,
-      malicious: 10
+      malicious: 12
     },
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.3',
+    version: '1.4.5',
     brand: 'Arx Intel'
   };
 
@@ -65,18 +69,20 @@
       const txt = el.textContent?.toLowerCase() || "";
       const tag = el.tagName?.toLowerCase() || "";
       const className = el.className?.toLowerCase?.() || "";
-      const src = el.src || el.getAttribute('href') || "";
+      const src = el.src || el.getAttribute('href') || el.getAttribute('data-href') || "";
       const cacheKey = simpleHash(`${tag}_${className}_${txt.slice(0, 50)}`);
 
       if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
 
-      if (src && config.trustedDomains.some(rx => rx.test(new URL(src, window.location.href).hostname))) return 0;
+      // Ignorar imagens data URI e domínios confiáveis
+      if (src && (src.startsWith('data:image/') || config.trustedDomains.some(rx => rx.test(new URL(src, window.location.href).hostname)))) return 0;
       if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
+      if (config.whitelist.some(w => className.includes(w))) return 0;
 
       let score = 0;
       if (config.keywords.some(w => txt.includes(w))) score += config.heuristicWeights.keywords;
       if (config.heuristicWeights.tags[tag]) score += config.heuristicWeights.tags[tag];
-      if ([...el.attributes].some(a => /on(load|click|mouseover|error|focus|blur|unload)/.test(a.name))) score += config.heuristicWeights.events;
+      if ([...el.attributes].some(a => /on(load|click|mouseover|error|focus|blur|unload|beforeunload|pagehide)/.test(a.name))) score += config.heuristicWeights.events;
       const style = window.getComputedStyle(el);
       if (parseInt(style.zIndex) > 100 || style.position === "fixed") score += config.heuristicWeights.styles;
       if (el.offsetHeight < 120 || el.offsetWidth < 300) score += config.heuristicWeights.size;
@@ -91,14 +97,14 @@
   }
 
   async function limparAds(root = document) {
-    const elements = root.querySelectorAll('iframe, script, div, aside, section');
+    const elements = root.querySelectorAll('iframe, script, div, aside, section, a, img');
     let blockedCount = 0;
     for (const el of elements) {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whitelist.some(w => className.includes(w))) continue;
 
       const score = await scoreElemento(el);
-      if (score >= 5) {
+      if (score >= 5 && el.tagName.toLowerCase() !== 'img') {
         el.setAttribute("data-arx-hidden", "true");
         el.style.display = "none";
         blockedCount++;
@@ -123,7 +129,7 @@
           setTimeout(() => {
             btn.click();
             console.log(`[${config.brand}] Botão de cookies clicado: ${btn.outerHTML.slice(0, 50)}...`);
-          }, Math.random() * 200 + 50);
+          }, Math.random() * 300 + 50);
           clicked = true;
         } catch (e) {
           console.warn(`[${config.brand}] Falha ao clicar no botão de cookies:`, e);
@@ -169,16 +175,18 @@
     });
 
     // Bloquear eventos dinâmicos
-    ['click', 'mouseover', 'focus', 'blur', 'unload'].forEach(event => {
+    ['click', 'mouseover', 'focus', 'blur', 'unload', 'beforeunload', 'pagehide'].forEach(event => {
       document.addEventListener(event, e => {
-        const target = e.target.closest('a[target="_blank"], [onclick], [onmouseover], [onfocus], [onblur], [onunload]');
+        const target = e.target.closest('a[target="_blank"], [onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [data-href]');
         if (target) {
           const href = target.href || 
+                       target.getAttribute('data-href') ||
                        target.getAttribute('onclick')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onmouseover')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onfocus')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onblur')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
-                       target.getAttribute('onunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
+                       target.getAttribute('onunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
+                       target.getAttribute('onbeforeunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
           if (href && !config.trustedDomains.some(rx => rx.test(new URL(href, window.location.href).hostname))) {
             e.preventDefault();
             e.stopPropagation();
@@ -188,9 +196,10 @@
       }, { capture: true, passive: false });
     });
 
-    // Bloquear setTimeout/setInterval maliciosos
+    // Bloquear setTimeout/setInterval/requestAnimationFrame/Promise
     const origSetTimeout = window.setTimeout;
     const origSetInterval = window.setInterval;
+    const origRequestAnimationFrame = window.requestAnimationFrame;
     window.setTimeout = function (fn, ...args) {
       const code = fn.toString();
       if (config.maliciousPatterns.some(rx => rx.test(code))) {
@@ -206,6 +215,22 @@
         return;
       }
       return origSetInterval(fn, ...args);
+    };
+    window.requestAnimationFrame = function (fn) {
+      const code = fn.toString();
+      if (config.maliciousPatterns.some(rx => rx.test(code))) {
+        console.warn(`[${config.brand}] AnimationFrame malicioso bloqueado: ${code.slice(0, 50)}...`);
+        return;
+      }
+      return origRequestAnimationFrame(fn);
+    };
+    const origPromise = Promise.resolve;
+    Promise.resolve = function (...args) {
+      if (args[0]?.toString()?.match(/location|window\.open/i)) {
+        console.warn(`[${config.brand}] Promise maliciosa bloqueada`);
+        return Promise.reject('Blocked by ArxCortex');
+      }
+      return origPromise.apply(Promise, args);
     };
 
     // Bloquear fetch/XMLHttpRequest suspeitos
@@ -229,22 +254,17 @@
       return origXhrOpen.apply(this, args);
     };
 
-    // Anti-adblock: simular elementos visíveis
+    // Anti-adblock
     setInterval(() => {
-      document.querySelectorAll('[data-arx-hidden]').forEach(el => {
+      document.querySelectorAll('[data-arx-hidden], [data-arx-blocked]').forEach(el => {
         Object.defineProperty(el, 'offsetHeight', { configurable: true, value: 100 });
         Object.defineProperty(el, 'offsetWidth', { configurable: true, value: 100 });
-        Object.defineProperty(el, 'style', { configurable: true, get: () => ({ display: 'block' }) });
+        Object.defineProperty(el, 'style', { configurable: true, get: () => ({ display: 'block', visibility: 'visible' }) });
+        Object.defineProperty(el, 'hidden', { configurable: true, value: false });
+        Object.defineProperty(el, 'clientHeight', { configurable: true, value: 100 });
+        Object.defineProperty(el, 'clientWidth', { configurable: true, value: 100 });
       });
-    }, 500);
-
-    // Monitorar visibilidade
-    setInterval(() => {
-      if (document.visibilityState === 'hidden' && !document.hasFocus()) {
-        console.warn(`[${config.brand}] Redirecionamento oculto detectado`);
-        window.stop();
-      }
-    }, 250);
+    }, 200);
   }
 
   function observarMutacoes() {
@@ -253,7 +273,7 @@
       window.__arxDelay = setTimeout(async () => {
         await limparAds();
         await acceptCookies();
-      }, 250);
+      }, 200);
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true });
   }
