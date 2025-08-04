@@ -40,7 +40,8 @@ const config = {
     /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
     /img\./, /images\./, /static\./,
     /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
-    /content\.manhastro\.net$/, /assets\.manhastro\.net$/, // Adicionados
+    /content\.manhastro\.net$/, /assets\.manhastro\.net$/,
+    /img\.manhastro\.net$/, /chapter\.manhastro\.net$/, // Adicionados
     /g1\.globo\.com$/
   ],
   maliciousPatterns: [
@@ -55,7 +56,7 @@ const config = {
   proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
   brand: {
     name: 'Arx Intel',
-    version: '1.9.10',
+    version: '1.9.11',
     website: 'https://arxintel.com'
   }
 };
@@ -78,7 +79,7 @@ function scoreElemento(el, targetUrl) {
     if (config.whiteClassHints.some(hint => el.className?.toLowerCase?.().includes(hint))) return 0;
 
     if (config.keywords.some(w => txt.includes(w))) score += 3;
-    if (["iframe", "aside"].includes(tag)) score += 1.5; // Removido script do bloqueio automático
+    if (["iframe", "aside"].includes(tag)) score += 1.5;
     if (["a"].includes(tag)) score += 0.5;
     if (["section", "div", "img"].includes(tag)) score += 0;
     if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error|focus|blur|unload|beforeunload|pagehide)/.test(a))) score += 1;
@@ -115,7 +116,7 @@ function sanitizeHTML(html, targetUrl) {
             console.log(`[${config.brand.name}] Script bloqueado: ${src || 'inline'}`);
             return;
           }
-          if (src && /manhastro\.net|g1\.globo\.com/.test(new URL(src, targetUrl).hostname)) {
+          if (src && /reader\.js|lazyload\.js|image-loader/.test(src)) {
             console.log(`[${config.brand.name}] Script essencial permitido: ${src}`);
             return;
           }
@@ -133,6 +134,12 @@ function sanitizeHTML(html, targetUrl) {
       el.removeAttribute('data-arx-hidden');
       el.style.display = '';
     }
+    // Forçar lazy-loading
+    if (el.tagName.toLowerCase() === 'img' && (el.hasAttribute('data-src') || el.hasAttribute('data-lazy-src'))) {
+      const src = el.getAttribute('data-src') || el.getAttribute('data-lazy-src');
+      el.setAttribute('src', src);
+      console.log(`[${config.brand.name}] Lazy-loading forçado no servidor: ${src}`);
+    }
   });
 
   ['a[href]', 'img[src]', 'script[src]'].forEach(selector => {
@@ -144,8 +151,8 @@ function sanitizeHTML(html, targetUrl) {
       try {
         const urlObj = new URL(url, targetUrl);
         if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
-          if (el.tagName.toLowerCase() === 'img' || (el.tagName.toLowerCase() === 'script' && /reader\.js|lazyload/.test(url))) {
-            el.setAttribute(attr, urlObj.href); // Preservar URL original pra imagens e scripts essenciais
+          if (el.tagName.toLowerCase() === 'img' || (el.tagName.toLowerCase() === 'script' && /reader\.js|lazyload\.js|image-loader/.test(url))) {
+            el.setAttribute(attr, urlObj.href);
             console.log(`[${config.brand.name}] URL preservada: ${url}`);
           } else {
             el.setAttribute(attr, config.proxyBase + encodeURIComponent(urlObj.href));
@@ -205,18 +212,21 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const response = await axios.get(url, {
-      timeout: 30000, // Aumentado pra 30s
+      timeout: 45000, // Aumentado pra 45s
       headers: {
         'User-Agent': `ArxSentinel/${config.brand.version}`,
         'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,image/*,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        'Access-Control-Allow-Origin': '*', // Suporte a CORS
-        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept'
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
       }
     });
     const cleaned = sanitizeHTML(response.data, url);
     cache.set(cacheKey, cleaned);
-    res.setHeader('Access-Control-Allow-Origin', '*'); // Suporte a CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.send(cleaned);
   } catch (err) {
     console.error(`[${config.brand.name}] Erro ao processar ${url}:`, err.message);
