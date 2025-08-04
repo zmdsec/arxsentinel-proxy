@@ -25,12 +25,12 @@
       "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
       "news-title", "headline-link", "article-link",
       "works-link", "obras-link", "manga-list", "series-link", "manga-menu",
-      "main-nav", "series-menu", "category-link", "nav-item", "menu-link" // Adicionados
+      "main-nav", "series-menu", "category-link", "nav-item", "menu-link"
     ],
     trustedPaths: [
       /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/,
       /\/series/, /\/works/, /\/home/, /\/index/, /\/catalog/, /\/library/,
-      /\/mangas/, /\/archive/ // Adicionados
+      /\/mangas/, /\/archive/
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
@@ -55,7 +55,7 @@
     ],
     proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.14',
+    version: '1.4.15',
     brand: 'Arx Intel'
   };
 
@@ -115,9 +115,9 @@
       if (el.tagName.toLowerCase() === 'a' && (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(href)))) {
         const decodedHref = decodeURIComponent(href);
         const urlObj = new URL(decodedHref, window.location.href);
-        const newHref = decodedHref.startsWith('/') ? config.proxyBase + encodeURIComponent(urlObj.href) : decodedHref;
+        const newHref = config.proxyBase + encodeURIComponent(urlObj.href);
         el.href = newHref;
-        console.log(`[${config.brand}] Link preservado: ${href} -> ${newHref}`);
+        console.log(`[${config.brand}] Link preservado e reescrito para proxy: ${href} -> ${newHref}`);
         continue;
       }
 
@@ -200,8 +200,9 @@
         console.warn(`[${config.brand}] Popup bloqueado: ${url || 'desconhecido'}`);
         return null;
       }
-      console.log(`[${config.brand}] Redirecionando popup pelo proxy: ${url}`);
-      return origOpen(config.proxyBase + encodeURIComponent(url));
+      const newUrl = config.proxyBase + encodeURIComponent(url);
+      console.log(`[${config.brand}] Redirecionando popup pelo proxy: ${url} -> ${newUrl}`);
+      return origOpen(newUrl);
     };
 
     ['href', 'assign', 'replace'].forEach(prop => {
@@ -214,41 +215,47 @@
             console.warn(`[${config.brand}] Redirecionamento bloqueado: ${value}`);
             return;
           }
-          const newUrl = value.startsWith('/') ? config.proxyBase + encodeURIComponent(new URL(value, window.location.origin).href) : value;
-          console.log(`[${config.brand}] Redirecionando pelo proxy: ${newUrl}`);
+          const newUrl = config.proxyBase + encodeURIComponent(urlObj.href);
+          console.log(`[${config.brand}] Redirecionando pelo proxy: ${value} -> ${newUrl}`);
           descriptor.set.call(window.location, newUrl);
         },
         get: descriptor.get
       });
     });
 
-    ['click'].forEach(event => {
-      document.addEventListener(event, e => {
-        const target = e.target.closest('a[target="_blank"], [onclick], [data-href]');
-        if (target) {
-          const href = target.href ||
-                       target.getAttribute('data-href') ||
-                       target.getAttribute('onclick')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
-          if (href) {
-            const decodedHref = decodeURIComponent(href);
-            const urlObj = new URL(decodedHref, window.location.href);
-            if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
-              const newHref = decodedHref.startsWith('/') ? config.proxyBase + encodeURIComponent(urlObj.href) : decodedHref;
-              target.href = newHref;
-              console.log(`[${config.brand}] Link de navegação reescrito pelo proxy: ${decodedHref} -> ${newHref}`);
-              if (target.getAttribute('onclick') && (config.navigationClasses.some(c => target.className?.toLowerCase?.().includes(c)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname)))) {
-                console.log(`[${config.brand}] Evento onclick preservado para navegação: ${target.getAttribute('onclick').slice(0, 50)}...`);
-                return;
-              }
-            } else {
+    document.addEventListener('click', e => {
+      const target = e.target.closest('a[href], [onclick], [data-href]');
+      if (target) {
+        let href = target.getAttribute('href') || target.getAttribute('data-href');
+        const onclick = target.getAttribute('onclick') || '';
+        if (onclick) {
+          const match = onclick.match(/['"]([^'"]+)['"]/i) || onclick.match(/location\.(?:href|assign|replace)\s*=\s*['"]([^'"]+)['"]/i);
+          if (match) href = match[1];
+        }
+        if (href && !href.startsWith('javascript:') && !href.startsWith('#') && !href.startsWith('data:')) {
+          const decodedHref = decodeURIComponent(href);
+          const urlObj = new URL(decodedHref, window.location.href);
+          if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
+            const newHref = config.proxyBase + encodeURIComponent(urlObj.href);
+            if (target.tagName.toLowerCase() === 'a') {
               e.preventDefault();
               e.stopPropagation();
-              console.log(`[${config.brand}] Ação externa bloqueada: ${decodedHref} (motivo: domínio não confiável ou padrão de bloqueio)`);
+              window.location.href = newHref;
+              console.log(`[${config.brand}] Link clicado reescrito para proxy: ${decodedHref} -> ${newHref}`);
+            } else if (onclick) {
+              e.preventDefault();
+              e.stopPropagation();
+              window.location.href = newHref;
+              console.log(`[${config.brand}] Evento onclick reescrito para proxy: ${decodedHref} -> ${newHref}`);
             }
+          } else {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log(`[${config.brand}] Ação externa bloqueada: ${decodedHref} (motivo: domínio não confiável ou padrão de bloqueio)`);
           }
         }
-      }, { capture: true, passive: false });
-    });
+      }
+    }, { capture: true, passive: false });
 
     const origSetTimeout = window.setTimeout;
     const origSetInterval = window.setInterval;
@@ -349,12 +356,12 @@
       window.__arxDelay = setTimeout(async () => {
         await limparAds();
         await acceptCookies();
-      }, 1000); // Aumentado pra 1000ms pra evitar bloqueio precoce
+      }, 1000);
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true });
   }
 
-  setTimeout(() => limparAds(), 500); // Delay inicial pra evitar bloqueio precoce
+  setTimeout(() => limparAds(), 500);
   setTimeout(() => acceptCookies(), 1000);
   setTimeout(() => acceptCookies(), 2000);
   setTimeout(() => acceptCookies(), 4000);
