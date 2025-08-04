@@ -17,7 +17,7 @@
       "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
       "accept-all", "cookie-accept", "consent-button", "cookie-btn",
       "image-container", "manga-page", "reader-image",
-      "reader-area", "chapter-image" // Adicionado pra manhastro.net
+      "reader-area", "chapter-image", "manga-reader", "chapter-container" // Adicionado
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
@@ -25,7 +25,7 @@
       /mangadex\.org$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/,
       /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
       /img\./, /images\./, /static\./,
-      /manhastro\.net$/, /cdn\.manhastro\.net$/ // Adicionado pra manhastro.net
+      /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/ // Adicionado
     ],
     maliciousPatterns: [
       /eval\(/i,
@@ -42,7 +42,7 @@
     ],
     heuristicWeights: {
       keywords: 3,
-      tags: { iframe: 1.5, aside: 1.5, section: 0.5, script: 0.6, a: 1, img: 0, div: 0.3 }, // Reduzido pra div, img
+      tags: { iframe: 1.5, aside: 1.5, section: 0.2, script: 0.6, a: 1, img: 0, div: 0.2 }, // Reduzido pra div, section, img
       events: 1,
       styles: 1.5,
       size: 1.5,
@@ -50,7 +50,7 @@
       malicious: 12
     },
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.6',
+    version: '1.4.7',
     brand: 'Arx Intel'
   };
 
@@ -98,14 +98,14 @@
   }
 
   async function limparAds(root = document) {
-    const elements = root.querySelectorAll('iframe, script, div, aside, section, a');
+    const elements = root.querySelectorAll('iframe, script, aside, a');
     let blockedCount = 0;
     for (const el of elements) {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whitelist.some(w => className.includes(w))) continue;
 
       const score = await scoreElemento(el);
-      if (score >= 5 && el.tagName.toLowerCase() !== 'img') {
+      if (score >= 5) {
         el.setAttribute("data-arx-hidden", "true");
         el.style.display = "none";
         blockedCount++;
@@ -262,6 +262,11 @@
           configurable: true,
           value: () => ({ width: 100, height: 100, top: 0, left: 0, bottom: 100, right: 100 })
         });
+        if (el.tagName.toLowerCase() === 'img') {
+          Object.defineProperty(el, 'naturalWidth', { configurable: true, value: 100 });
+          Object.defineProperty(el, 'naturalHeight', { configurable: true, value: 100 });
+          Object.defineProperty(el, 'complete', { configurable: true, value: true });
+        }
       });
     }, 200);
   }
