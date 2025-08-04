@@ -38,12 +38,13 @@ const config = {
     "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
     "news-title", "headline-link", "article-link",
     "works-link", "obras-link", "manga-list", "series-link", "manga-menu",
-    "main-nav", "series-menu", "category-link", "nav-item", "menu-link"
+    "main-nav", "series-menu", "category-link", "nav-item", "menu-link",
+    "site-nav", "top-menu", "chapter-list", "manga-nav" // Adicionados
   ],
   trustedPaths: [
     /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/,
     /\/series/, /\/works/, /\/home/, /\/index/, /\/catalog/, /\/library/,
-    /\/mangas/, /\/archive/
+    /\/mangas/, /\/archive/, /\/manga-list/, /\/chapter-list/, /\/series-list/ // Adicionados
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
@@ -69,7 +70,7 @@ const config = {
   proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
   brand: {
     name: 'Arx Intel',
-    version: '1.9.17',
+    version: '1.9.18',
     website: 'https://arxintel.com'
   },
   heuristicWeights: {
@@ -143,7 +144,7 @@ function sanitizeHTML(html, targetUrl) {
             console.log(`[${config.brand.name}] Script bloqueado: ${src || 'inline'} (motivo: padrão malicioso ou de anúncio)`);
             return;
           }
-          if (src && /reader\.js|lazyload\.js|image-loader|manga-loader|navigation\.js|menu\.js|chapter-loader|site-nav|main-nav/.test(src)) {
+          if (src && /reader\.js|lazyload\.js|image-loader|manga-loader|navigation\.js|menu\.js|chapter-loader|site-nav|main-nav|manga-nav|page-nav/.test(src)) {
             console.log(`[${config.brand.name}] Script essencial permitido: ${src}`);
             return;
           }
@@ -197,8 +198,8 @@ function sanitizeHTML(html, targetUrl) {
     const href = el.getAttribute('href') || '';
     const onclick = el.getAttribute('onclick') || '';
     if ((config.trustedDomains.some(rx => rx.test(new URL(targetUrl).hostname)) || config.trustedPaths.some(rx => rx.test(href))) &&
-        (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(href)) || /window\.location|location\.href/.test(onclick))) {
-      const match = onclick.match(/['"]([^'"]+)['"]/i);
+        (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(href)) || /window\.location|location\.href|location\.assign|location\.replace/.test(onclick))) {
+      const match = onclick.match(/['"]([^'"]+)['"]/i) || onclick.match(/location\.(?:href|assign|replace)\s*=\s*['"]([^'"]+)['"]/i);
       if (match) {
         const url = match[1];
         try {
