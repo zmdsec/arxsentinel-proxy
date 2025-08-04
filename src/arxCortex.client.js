@@ -16,14 +16,16 @@
       "cookie-consent", "cookie-notice", "accept-cookies",
       "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
       "accept-all", "cookie-accept", "consent-button", "cookie-btn",
-      "image-container", "manga-page", "reader-image" // Adicionado pra manhwa
+      "image-container", "manga-page", "reader-image",
+      "reader-area", "chapter-image" // Adicionado pra manhastro.net
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
       /webtoons\.com$/, /mangakakalot\.com$/, /readmanganato\.com$/,
       /mangadex\.org$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/,
       /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
-      /img\./, /images\./, /static\./ // Adicionado pra imagens
+      /img\./, /images\./, /static\./,
+      /manhastro\.net$/, /cdn\.manhastro\.net$/ // Adicionado pra manhastro.net
     ],
     maliciousPatterns: [
       /eval\(/i,
@@ -40,7 +42,7 @@
     ],
     heuristicWeights: {
       keywords: 3,
-      tags: { iframe: 1.5, aside: 1.5, section: 0.5, script: 0.6, a: 1, img: 0.2 }, // Reduzido pra section, img
+      tags: { iframe: 1.5, aside: 1.5, section: 0.5, script: 0.6, a: 1, img: 0, div: 0.3 }, // Reduzido pra div, img
       events: 1,
       styles: 1.5,
       size: 1.5,
@@ -48,7 +50,7 @@
       malicious: 12
     },
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.5',
+    version: '1.4.6',
     brand: 'Arx Intel'
   };
 
@@ -74,7 +76,6 @@
 
       if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
 
-      // Ignorar imagens data URI e domínios confiáveis
       if (src && (src.startsWith('data:image/') || config.trustedDomains.some(rx => rx.test(new URL(src, window.location.href).hostname)))) return 0;
       if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
       if (config.whitelist.some(w => className.includes(w))) return 0;
@@ -97,7 +98,7 @@
   }
 
   async function limparAds(root = document) {
-    const elements = root.querySelectorAll('iframe, script, div, aside, section, a, img');
+    const elements = root.querySelectorAll('iframe, script, div, aside, section, a');
     let blockedCount = 0;
     for (const el of elements) {
       const className = el.className?.toLowerCase?.() || "";
@@ -147,7 +148,6 @@
   }
 
   function protegerContraPopups() {
-    // Bloquear window.open
     const origOpen = window.open;
     window.open = function (...args) {
       const url = args[0];
@@ -158,7 +158,6 @@
       return origOpen.apply(window, args);
     };
 
-    // Bloquear redirecionamentos via location
     ['href', 'assign', 'replace'].forEach(prop => {
       const descriptor = Object.getOwnPropertyDescriptor(window.location, prop) || Object.getOwnPropertyDescriptor(Location.prototype, prop);
       Object.defineProperty(window.location, prop, {
@@ -174,7 +173,6 @@
       });
     });
 
-    // Bloquear eventos dinâmicos
     ['click', 'mouseover', 'focus', 'blur', 'unload', 'beforeunload', 'pagehide'].forEach(event => {
       document.addEventListener(event, e => {
         const target = e.target.closest('a[target="_blank"], [onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [data-href]');
@@ -196,7 +194,6 @@
       }, { capture: true, passive: false });
     });
 
-    // Bloquear setTimeout/setInterval/requestAnimationFrame/Promise
     const origSetTimeout = window.setTimeout;
     const origSetInterval = window.setInterval;
     const origRequestAnimationFrame = window.requestAnimationFrame;
@@ -233,11 +230,10 @@
       return origPromise.apply(Promise, args);
     };
 
-    // Bloquear fetch/XMLHttpRequest suspeitos
     const origFetch = window.fetch;
     window.fetch = async function (...args) {
       const url = args[0];
-      if (typeof url === 'string' && config.blockPatterns.some(rx => rx.test(url))) {
+      if (typeof url === 'string' && config.blockPatterns.some(rx => rx.test(url)) && !config.trustedDomains.some(rx => rx.test(new URL(url, window.location.href).hostname))) {
         console.warn(`[${config.brand}] Requisição bloqueada: ${url}`);
         return new Response(null, { status: 403 });
       }
@@ -247,22 +243,25 @@
     const origXhrOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (...args) {
       const url = args[1];
-      if (config.blockPatterns.some(rx => rx.test(url))) {
+      if (config.blockPatterns.some(rx => rx.test(url)) && !config.trustedDomains.some(rx => rx.test(new URL(url, window.location.href).hostname))) {
         console.warn(`[${config.brand}] Requisição XHR bloqueada: ${url}`);
         return;
       }
       return origXhrOpen.apply(this, args);
     };
 
-    // Anti-adblock
     setInterval(() => {
       document.querySelectorAll('[data-arx-hidden], [data-arx-blocked]').forEach(el => {
         Object.defineProperty(el, 'offsetHeight', { configurable: true, value: 100 });
         Object.defineProperty(el, 'offsetWidth', { configurable: true, value: 100 });
-        Object.defineProperty(el, 'style', { configurable: true, get: () => ({ display: 'block', visibility: 'visible' }) });
+        Object.defineProperty(el, 'style', { configurable: true, get: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) });
         Object.defineProperty(el, 'hidden', { configurable: true, value: false });
         Object.defineProperty(el, 'clientHeight', { configurable: true, value: 100 });
         Object.defineProperty(el, 'clientWidth', { configurable: true, value: 100 });
+        Object.defineProperty(el, 'getBoundingClientRect', {
+          configurable: true,
+          value: () => ({ width: 100, height: 100, top: 0, left: 0, bottom: 100, right: 100 })
+        });
       });
     }, 200);
   }
