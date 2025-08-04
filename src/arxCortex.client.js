@@ -16,9 +16,15 @@
       "cookie-consent", "cookie-notice", "accept-cookies",
       "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
       "accept-all", "cookie-accept", "consent-button", "cookie-btn",
+      "cookiebar", "cookie-policy", "consent-popup", "gdpr-notice", // Adicionados
       "image-container", "manga-page", "reader-image",
       "reader-area", "chapter-image", "manga-reader", "chapter-container",
       "news", "noticia", "headline"
+    ],
+    navigationClasses: [ // Adicionado
+      "nav", "menu", "navbar", "nav-link", "menu-item",
+      "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
+      "news-title", "headline-link", "article-link"
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
@@ -28,7 +34,8 @@
       /img\./, /images\./, /static\./,
       /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
       /content\.manhastro\.net$/, /assets\.manhastro\.net$/,
-      /img\.manhastro\.net$/, /chapter\.manhastro\.net$/, // Adicionados
+      /img\.manhastro\.net$/, /chapter\.manhastro\.net$/,
+      /media2\.manhastro\.net$/, /images\.manhastro\.net$/, // Adicionados
       /g1\.globo\.com$/
     ],
     maliciousPatterns: [
@@ -45,17 +52,18 @@
       /Promise\.resolve/i
     ],
     heuristicWeights: {
-      keywords: 3,
-      tags: { iframe: 1.5, aside: 1.5, script: 0.6, a: 0.5, img: 0, div: 0.1, section: 0.1 },
+      keywords: 4, // Aumentado
+      tags: { iframe: 2, aside: 2, script: 0.8, a: 0.3, img: 0, div: 0.1, section: 0.1 }, // Ajustado
       events: 1,
       styles: 1.5,
       size: 1.5,
-      patterns: 4,
-      malicious: 12
+      patterns: 5, // Aumentado
+      malicious: 15, // Aumentado
+      trustedDomain: -3 // Adicionado: reduz pontuação pra trustedDomains
     },
     proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.11',
+    version: '1.4.12',
     brand: 'Arx Intel'
   };
 
@@ -81,9 +89,12 @@
 
       if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
 
-      if (src && (src.startsWith('data:image/') || config.trustedDomains.some(rx => rx.test(new URL(src, window.location.href).hostname)))) return 0;
+      if (src && (src.startsWith('data:image/') || config.trustedDomains.some(rx => rx.test(new URL(src, window.location.href).hostname)))) {
+        return config.heuristicWeights.trustedDomain; // Reduz pontuação
+      }
       if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
       if (config.whitelist.some(w => className.includes(w))) return 0;
+      if (tag === 'a' && config.navigationClasses.some(c => className.includes(c))) return 0; // Preservar links de navegação
 
       let score = 0;
       if (config.keywords.some(w => txt.includes(w))) score += config.heuristicWeights.keywords;
@@ -108,6 +119,7 @@
     for (const el of elements) {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whitelist.some(w => className.includes(w))) continue;
+      if (el.tagName.toLowerCase() === 'a' && config.navigationClasses.some(c => className.includes(c))) continue; // Preservar links de navegação
 
       const score = await scoreElemento(el);
       if (score >= 5) {
@@ -126,7 +138,6 @@
       img.onload = () => {
         console.log(`[${config.brand}] Imagem carregada com sucesso: ${img.src}`);
       };
-      // Forçar lazy-loading
       if (img.hasAttribute('data-src') || img.hasAttribute('data-lazy-src')) {
         const src = img.getAttribute('data-src') || img.getAttribute('data-lazy-src');
         img.src = src;
@@ -141,7 +152,9 @@
         'button[class*="cookie"], button[class*="consent"], button[class*="accept"], button[class*="gdpr"], button[class*="privacy"], button[class*="cookie-accept"], button[class*="accept-all"], button[class*="cookie-btn"]',
         'a[class*="cookie"], a[class*="consent"], a[class*="accept"]',
         'div[class*="cookie"][role="button"], div[class*="consent"][role="button"]',
-        'button:contains("Aceitar"), button:contains("Accept"), button:contains("Consent"), button:contains("OK"), button:contains("Agree"), button:contains("Confirmar")'
+        'button:contains("Aceitar"), button:contains("Accept"), button:contains("Consent"), button:contains("OK"), button:contains("Agree"), button:contains("Confirmar")',
+        '[aria-label*="cookie"], [aria-label*="consent"], [aria-label*="accept"]', // Adicionados
+        '[data-consent], [data-cookie], [data-gdpr], [data-privacy]' // Adicionados
       ].join(', ');
 
       const cookieButtons = document.querySelectorAll(selectors);
@@ -169,7 +182,6 @@
   }
 
   function protegerContraPopups() {
-    // Simular IntersectionObserver pra lazy-loading
     window.IntersectionObserver = class {
       constructor(callback) {
         this.callback = callback;
@@ -227,7 +239,11 @@
             if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || href.startsWith('/')) {
               const newHref = href.startsWith('/') ? config.proxyBase + encodeURIComponent(new URL(href, window.location.origin).href) : href;
               target.href = newHref;
-              console.log(`[${config.brand}] Link reescrito pelo proxy: ${newHref}`);
+              console.log(`[${config.brand}] Link de navegação reescrito pelo proxy: ${newHref}`);
+              if (target.getAttribute('onclick') && config.navigationClasses.some(c => target.className?.toLowerCase?.().includes(c))) {
+                console.log(`[${config.brand}] Evento onclick preservado para navegação: ${target.getAttribute('onclick').slice(0, 50)}...`);
+                return; // Preservar onclick de navegação
+              }
             } else {
               e.preventDefault();
               e.stopPropagation();
