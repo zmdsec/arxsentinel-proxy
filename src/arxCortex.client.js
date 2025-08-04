@@ -18,7 +18,7 @@
       "accept-all", "cookie-accept", "consent-button", "cookie-btn",
       "image-container", "manga-page", "reader-image",
       "reader-area", "chapter-image", "manga-reader", "chapter-container",
-      "news", "noticia", "headline" // Adicionado pra G1
+      "news", "noticia", "headline"
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
@@ -27,7 +27,7 @@
       /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
       /img\./, /images\./, /static\./,
       /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
-      /g1\.globo\.com$/ // Adicionado pra G1
+      /g1\.globo\.com$/
     ],
     maliciousPatterns: [
       /eval\(/i,
@@ -44,15 +44,16 @@
     ],
     heuristicWeights: {
       keywords: 3,
-      tags: { iframe: 1.5, aside: 1.5, script: 0.6, a: 1, img: 0, div: 0.1, section: 0.1 }, // Reduzido pra div, section, img
+      tags: { iframe: 1.5, aside: 1.5, script: 0.6, a: 0.5, img: 0, div: 0.1, section: 0.1 },
       events: 1,
       styles: 1.5,
       size: 1.5,
       patterns: 4,
       malicious: 12
     },
+    proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=', // Adicionado
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.8',
+    version: '1.4.9',
     brand: 'Arx Intel'
   };
 
@@ -157,7 +158,8 @@
         console.warn(`[${config.brand}] Popup bloqueado: ${url || 'desconhecido'}`);
         return null;
       }
-      return origOpen.apply(window, args);
+      console.log(`[${config.brand}] Redirecionando popup pelo proxy: ${url}`);
+      return origOpen(config.proxyBase + encodeURIComponent(url));
     };
 
     ['href', 'assign', 'replace'].forEach(prop => {
@@ -170,7 +172,9 @@
             console.warn(`[${config.brand}] Redirecionamento bloqueado: ${value}`);
             return;
           }
-          descriptor.set.call(window.location, value);
+          const newUrl = value.startsWith('/') ? config.proxyBase + encodeURIComponent(new URL(value, window.location.origin).href) : value;
+          console.log(`[${config.brand}] Redirecionando pelo proxy: ${newUrl}`);
+          descriptor.set.call(window.location, newUrl);
         },
         get: descriptor.get
       });
@@ -188,10 +192,17 @@
                        target.getAttribute('onblur')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onbeforeunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
-          if (href && !config.trustedDomains.some(rx => rx.test(new URL(href, window.location.href).hostname)) && !href.startsWith('/')) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log(`[${config.brand}] Ação externa bloqueada: ${href}`);
+          if (href) {
+            const urlObj = new URL(href, window.location.href);
+            if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || href.startsWith('/')) {
+              const newHref = href.startsWith('/') ? config.proxyBase + encodeURIComponent(new URL(href, window.location.origin).href) : href;
+              target.href = newHref;
+              console.log(`[${config.brand}] Link reescrito pelo proxy: ${newHref}`);
+            } else {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log(`[${config.brand}] Ação externa bloqueada: ${href}`);
+            }
           }
         }
       }, { capture: true, passive: false });
@@ -236,9 +247,16 @@
     const origFetch = window.fetch;
     window.fetch = async function (...args) {
       const url = args[0];
-      if (typeof url === 'string' && config.blockPatterns.some(rx => rx.test(url)) && !config.trustedDomains.some(rx => rx.test(new URL(url, window.location.href).hostname))) {
-        console.warn(`[${config.brand}] Requisição bloqueada: ${url}`);
-        return new Response(null, { status: 403 });
+      if (typeof url === 'string') {
+        const urlObj = new URL(url, window.location.href);
+        if (config.blockPatterns.some(rx => rx.test(url)) && !config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+          console.warn(`[${config.brand}] Requisição bloqueada: ${url}`);
+          return new Response(null, { status: 403 });
+        }
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && url.startsWith('/')) {
+          args[0] = config.proxyBase + encodeURIComponent(urlObj.href);
+          console.log(`[${config.brand}] Requisição reescrita pelo proxy: ${args[0]}`);
+        }
       }
       return origFetch(...args);
     };
@@ -246,9 +264,16 @@
     const origXhrOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (...args) {
       const url = args[1];
-      if (config.blockPatterns.some(rx => rx.test(url)) && !config.trustedDomains.some(rx => rx.test(new URL(url, window.location.href).hostname))) {
-        console.warn(`[${config.brand}] Requisição XHR bloqueada: ${url}`);
-        return;
+      if (typeof url === 'string') {
+        const urlObj = new URL(url, window.location.href);
+        if (config.blockPatterns.some(rx => rx.test(url)) && !config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+          console.warn(`[${config.brand}] Requisição XHR bloqueada: ${url}`);
+          return;
+        }
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && url.startsWith('/')) {
+          args[1] = config.proxyBase + encodeURIComponent(urlObj.href);
+          console.log(`[${config.brand}] Requisição XHR reescrita pelo proxy: ${args[1]}`);
+        }
       }
       return origXhrOpen.apply(this, args);
     };
