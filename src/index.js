@@ -21,20 +21,19 @@ const config = {
     /outbrain/i,
     /facebook.net/i,
     /analytics/i,
-    /track|ad|sponsored|banner|pixel|beacon|impression|click/i
+    /track|ad|sponsored|banner|pixel|beacon|impression|click/i // Removido /politica/ e /noticia/ se existirem
   ],
   whiteClassHints: [
     "main", "content", "article", "body", "texto",
     "chapter-content", "manga-image", "reader", "comic",
-    "wrapper", "container", "root",
     "cookie-consent", "cookie-notice", "accept-cookies",
     "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
-    "cookiebar", "cookie-policy", "consent-popup", "gdpr-notice", // Adicionados
+    "cookiebar", "cookie-policy", "consent-popup", "gdpr-notice",
     "image-container", "manga-page", "reader-image",
     "reader-area", "chapter-image", "manga-reader", "chapter-container",
     "news", "noticia", "headline"
   ],
-  navigationClasses: [ // Adicionado
+  navigationClasses: [
     "nav", "menu", "navbar", "nav-link", "menu-item",
     "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
     "news-title", "headline-link", "article-link"
@@ -48,8 +47,8 @@ const config = {
     /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
     /content\.manhastro\.net$/, /assets\.manhastro\.net$/,
     /img\.manhastro\.net$/, /chapter\.manhastro\.net$/,
-    /media2\.manhastro\.net$/, /images\.manhastro\.net$/, // Adicionados
-    /g1\.globo\.com$/
+    /media2\.manhastro\.net$/, /images\.manhastro\.net$/,
+    /g1\.globo\.com$/, /globo\.com$/ // Adicionado globo.com
   ],
   maliciousPatterns: [
     /eval\(/i,
@@ -63,8 +62,18 @@ const config = {
   proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
   brand: {
     name: 'Arx Intel',
-    version: '1.9.12',
+    version: '1.9.13',
     website: 'https://arxintel.com'
+  },
+  heuristicWeights: {
+    keywords: 4,
+    tags: { iframe: 2, aside: 2, script: 0.8, a: 0.3, img: 0, div: 0.1, section: 0.1 },
+    events: 1,
+    styles: 1.5,
+    size: 1.5,
+    patterns: 5,
+    malicious: 15,
+    trustedDomain: -3
   }
 };
 
@@ -83,11 +92,11 @@ function scoreElemento(el, targetUrl) {
     const className = el.className?.toLowerCase?.() || "";
 
     if (src && (src.startsWith('data:image/') || config.trustedDomains.some(rx => rx.test(new URL(src, targetUrl).hostname)))) {
-      return config.heuristicWeights.trustedDomain; // Reduz pontuação
+      return config.heuristicWeights.trustedDomain;
     }
     if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
     if (config.whiteClassHints.some(hint => className.includes(hint))) return 0;
-    if (tag === 'a' && config.navigationClasses.some(c => className.includes(c))) return 0; // Preservar links de navegação
+    if (tag === 'a' && config.navigationClasses.some(c => className.includes(c))) return 0;
 
     if (config.keywords.some(w => txt.includes(w))) score += config.heuristicWeights.keywords;
     if (["iframe", "aside"].includes(tag)) score += config.heuristicWeights.tags[tag] || 0;
@@ -159,7 +168,8 @@ function sanitizeHTML(html, targetUrl) {
       if (!url) return;
       if (url.startsWith('data:image/')) return;
       try {
-        const urlObj = new URL(url, targetUrl);
+        const decodedUrl = decodeURIComponent(url); // Decodificar URL
+        const urlObj = new URL(decodedUrl, targetUrl);
         if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
           if (el.tagName.toLowerCase() === 'img' || (el.tagName.toLowerCase() === 'script' && /reader\.js|lazyload\.js|image-loader|manga-loader/.test(url))) {
             el.setAttribute(attr, urlObj.href);
@@ -175,7 +185,7 @@ function sanitizeHTML(html, targetUrl) {
           el.setAttribute(attr, 'javascript:void(0)');
           el.setAttribute('data-arx-blocked', 'true');
           blockedCount++;
-          console.log(`[${config.brand.name}] URL bloqueada: ${url}`);
+          console.log(`[${config.brand.name}] URL bloqueada: ${url} (motivo: domínio não confiável)`);
         }
       } catch (e) {
         console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url} - ${e.message}`);
@@ -217,14 +227,28 @@ function sanitizeHTML(html, targetUrl) {
 }
 
 app.get('/proxy', async (req, res) => {
-  const url = req.query.url;
+  let url = req.query.url;
   if (!url) return res.status(400).send('URL não fornecida.');
+  try {
+    url = decodeURIComponent(url); // Decodificar URL do parâmetro
+  } catch (e) {
+    console.warn(`[${config.brand.name}] Falha ao decodificar URL: ${url} - ${e.message}`);
+    return res.status(400).send('URL inválida.');
+  }
   const urlObj = new URL(url);
   if (!['http:', 'https:'].includes(urlObj.protocol)) return res.status(400).send('Protocolo inválido.');
 
   const cacheKey = `arx_${url}`;
   const cached = cache.get(cacheKey);
   if (cached) return res.send(cached);
+
+  // Verificar trustedDomains antes de bloquear
+  if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+    console.log(`[${config.brand.name}] URL confiável permitida: ${url}`);
+  } else if (config.blockPatterns.some(rx => rx.test(url))) {
+    console.log(`[${config.brand.name}] URL bloqueada: ${url} (motivo: padrão de bloqueio)`);
+    return res.status(403).send('URL bloqueada pelo ArxSentinel.');
+  }
 
   try {
     const response = await axios.get(url, {
