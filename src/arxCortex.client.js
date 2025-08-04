@@ -10,11 +10,40 @@
       /analytics/i,
       /track|ad|sponsored|banner|pixel|beacon|impression|click/i
     ],
-    whitelist: ["main", "content", "article", "body", "texto", "chapter-content", "manga-image", "reader", "comic"],
+    whitelist: [
+      "main",
+      "content",
+      "article",
+      "body",
+      "texto",
+      "chapter-content",
+      "manga-image",
+      "reader",
+      "comic",
+      "cookie-consent",
+      "cookie-notice",
+      "accept-cookies",
+      "consent-banner",
+      "gdpr",
+      "privacy-policy",
+      "cookie-popup",
+      "accept-all"
+    ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
-    trustedDomains: [/webtoons\.com$/, /mangakakalot\.com$/, /readmanganato\.com$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/],
+    trustedDomains: [
+      /webtoons\.com$/,
+      /mangakakalot\.com$/,
+      /readmanganato\.com$/,
+      /mangadex\.org$/,
+      /cdn\./,
+      /cloudflare\.com$/,
+      /akamai\.net$/,
+      /cookiebot\.com$/,
+      /onetrust\.com$/,
+      /consensu\.org$/
+    ],
     secretKey: 'arx_intel_secret_2025',
-    version: '1.3.1',
+    version: '1.3.3',
     brand: 'Arx Intel',
     feedbackTTL: 30 * 24 * 60 * 60 * 1000,
     maxFeedbackEntries: 1000
@@ -103,16 +132,19 @@
 
       if (scoreCache.has(cacheKey)) return scoreCache.get(cacheKey);
 
-      // Evitar bloquear recursos de domínios confiáveis
+      // Preservar elementos de cookies e domínios confiáveis
       if (src && config.trustedDomains.some(rx => rx.test(new URL(src, window.location.href).hostname))) {
+        return 0;
+      }
+      if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) {
         return 0;
       }
 
       let score = 0;
       if (config.keywords.some(w => txt.includes(w))) score += 3;
       if (["iframe", "aside", "section"].includes(tag)) score += 2;
-      if (["script"].includes(tag)) score += 1; // Reduzir peso de scripts
-      if ([...el.attributes].some(a => /onload|onclick|onmouseover|onerror/.test(a.name))) score += 2;
+      if (["script"].includes(tag)) score += 0.5; // Peso ainda mais reduzido para scripts
+      if ([...el.attributes].some(a => /onload|onclick|onmouseover|onerror/.test(a.name))) score += 1;
       const style = window.getComputedStyle(el);
       if (parseInt(style.zIndex) > 100 || style.position === "fixed") score += 2;
       if (el.offsetHeight < 120 || el.offsetWidth < 300) score += 2;
@@ -153,10 +185,44 @@
     console.log(`[${config.brand}] Bloqueados ${blockedCount} elementos nesta varredura`);
   }
 
+  async function acceptCookies() {
+    try {
+      const selectors = [
+        'button[class*="cookie"], button[class*="consent"], button[class*="accept"], button[class*="gdpr"], button[class*="privacy"]',
+        'a[class*="cookie"], a[class*="consent"], a[class*="accept"], a[class*="gdpr"], a[class*="privacy"]',
+        'div[class*="cookie"][role="button"], div[class*="consent"][role="button"], div[class*="accept"][role="button"]',
+        'button:contains("Aceitar"), button:contains("Accept"), button:contains("Consent"), button:contains("OK")'
+      ].join(', ');
+      
+      const cookieButtons = document.querySelectorAll(selectors);
+      let clicked = false;
+      for (const btn of cookieButtons) {
+        try {
+          btn.click();
+          console.log(`[${config.brand}] Botão de cookies clicado: ${btn.outerHTML.slice(0, 50)}...`);
+          clicked = true;
+        } catch (e) {
+          console.warn(`[${config.brand}] Falha ao clicar no botão de cookies:`, e);
+        }
+      }
+      if (clicked) {
+        // Reexecutar limpeza após aceitar cookies
+        setTimeout(() => limparAds(), 500);
+      }
+      return clicked;
+    } catch (e) {
+      console.warn(`[${config.brand}] Erro ao aceitar cookies:`, e);
+      return false;
+    }
+  }
+
   function observarMutacoes() {
     const observer = new MutationObserver(() => {
       clearTimeout(window.__arxDelay);
-      window.__arxDelay = setTimeout(() => limparAds(), 200); // Ajustado para 200ms
+      window.__arxDelay = setTimeout(async () => {
+        await limparAds();
+        await acceptCookies(); // Tentar aceitar cookies em mutações
+      }, 200);
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
@@ -179,19 +245,23 @@
       saveFeedback();
       scoreCache.delete(id);
       console.log(`[${config.brand}] Feedback registrado: ${tipo} para ID ${id}`);
+      // Reexecutar limpeza após feedback
+      await limparAds();
     },
     getStats: () => ({
       blockedCount: scoreCache.size,
       feedbackCount: Object.keys(userFeedback).length
     }),
     version: config.version,
-    limparAds
+    limparAds,
+    acceptCookies
   };
   Object.defineProperty(window, 'ArxCortex', { value: window.ArxCortex, writable: false });
 
   if (window.localStorage) {
     loadExternalBlockList();
     limparAds();
+    setTimeout(() => acceptCookies(), 1000); // Tentar aceitar cookies após 1s
     observarMutacoes();
   } else {
     console.warn(`[${config.brand}] localStorage não disponível. Feedback desativado.`);
