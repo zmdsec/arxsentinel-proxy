@@ -31,7 +31,7 @@ const config = {
     "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
     "image-container", "manga-page", "reader-image",
     "reader-area", "chapter-image", "manga-reader", "chapter-container",
-    "news", "noticia", "headline" // Adicionado pra G1
+    "news", "noticia", "headline"
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
@@ -40,7 +40,7 @@ const config = {
     /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
     /img\./, /images\./, /static\./,
     /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
-    /g1\.globo\.com$/ // Adicionado pra G1
+    /g1\.globo\.com$/
   ],
   maliciousPatterns: [
     /eval\(/i,
@@ -51,9 +51,10 @@ const config = {
     /requestAnimationFrame/i,
     /Promise\.resolve/i
   ],
+  proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=', // Adicionado
   brand: {
     name: 'Arx Intel',
-    version: '1.9.8',
+    version: '1.9.9',
     website: 'https://arxintel.com'
   }
 };
@@ -77,8 +78,8 @@ function scoreElemento(el, targetUrl) {
 
     if (config.keywords.some(w => txt.includes(w))) score += 3;
     if (["iframe", "aside", "script"].includes(tag)) score += 1.5;
-    if (["a"].includes(tag)) score += 0.5; // Reduzido pra links
-    if (["section", "div", "img"].includes(tag)) score += 0; // Ignorar div, section, img
+    if (["a"].includes(tag)) score += 0.5;
+    if (["section", "div", "img"].includes(tag)) score += 0;
     if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error|focus|blur|unload|beforeunload|pagehide)/.test(a))) score += 1;
     const style = el.style || {};
     if (style.position === "fixed" || parseInt(style.zIndex) > 100) score += 1.5;
@@ -95,10 +96,8 @@ function scoreElemento(el, targetUrl) {
 function sanitizeHTML(html, targetUrl) {
   const dom = new JSDOM(html);
   const { document } = dom.window;
-  const baseProxy = 'https://arxsentinel-proxy.onrender.com/proxy?url=';
   const baseOrigin = new URL(targetUrl).origin;
 
-  // Bloquear scripts e links maliciosos
   let blockedCount = 0;
   document.querySelectorAll('script, iframe, aside').forEach(el => {
     try {
@@ -123,7 +122,6 @@ function sanitizeHTML(html, targetUrl) {
     } catch { }
   });
 
-  // Preservar divs, sections e imagens
   document.querySelectorAll('div, section, img').forEach(el => {
     const className = el.className?.toLowerCase?.() || "";
     if (config.whiteClassHints.some(hint => className.includes(hint))) {
@@ -132,37 +130,30 @@ function sanitizeHTML(html, targetUrl) {
     }
   });
 
-  // Reescreve URLs, preservando relativas em domínios confiáveis
   ['a[href]', 'img[src]', 'script[src]'].forEach(selector => {
     document.querySelectorAll(selector).forEach(el => {
       const attr = el.hasAttribute('href') ? 'href' : 'src';
       let url = el.getAttribute(attr);
       if (!url) return;
       if (url.startsWith('data:image/')) return;
-      if (url.startsWith('http')) {
+      try {
         const urlObj = new URL(url, targetUrl);
         if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
-          el.setAttribute(attr, url); // Preservar URL original
+          el.setAttribute(attr, config.proxyBase + encodeURIComponent(urlObj.href)); // Forçar proxy
+          console.log(`[${config.brand.name}] URL reescrita pelo proxy: ${url} -> ${el.getAttribute(attr)}`);
         } else {
-          el.setAttribute(attr, `${baseProxy}${encodeURIComponent(url)}`);
+          el.setAttribute(attr, 'javascript:void(0)');
+          el.setAttribute('data-arx-blocked', 'true');
+          blockedCount++;
+          console.log(`[${config.brand.name}] URL bloqueada: ${url}`);
         }
-      } else if (!url.startsWith('#') && !url.startsWith('javascript:')) {
-        try {
-          const absolute = new URL(url, baseOrigin).href;
-          if (config.trustedDomains.some(rx => rx.test(new URL(absolute, targetUrl).hostname))) {
-            el.setAttribute(attr, absolute); // Usar URL absoluta
-          } else {
-            el.setAttribute(attr, `${baseProxy}${encodeURIComponent(absolute)}`);
-          }
-        } catch (e) {
-          console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url}`);
-          el.setAttribute(attr, url); // Preservar URL original
-        }
+      } catch (e) {
+        console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url}`);
+        el.setAttribute(attr, url);
       }
     });
   });
 
-  // Neutralizar eventos inline, exceto em domínios confiáveis
   document.querySelectorAll('[onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [onpagehide]').forEach(el => {
     const events = ['onclick', 'onmouseover', 'onfocus', 'onblur', 'onunload', 'onbeforeunload', 'onpagehide'];
     const urlObj = new URL(targetUrl);
@@ -177,12 +168,10 @@ function sanitizeHTML(html, targetUrl) {
     });
   });
 
-  // Base tag
   const baseTag = document.createElement('base');
   baseTag.href = baseOrigin;
   document.head.appendChild(baseTag);
 
-  // Injetar ArxCortex
   let cortexScript = '';
   try {
     cortexScript = fs.readFileSync(__dirname + '/arxCortex.client.js', 'utf8');
