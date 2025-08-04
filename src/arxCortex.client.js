@@ -27,6 +27,7 @@
       /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
       /img\./, /images\./, /static\./,
       /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
+      /content\.manhastro\.net$/, /assets\.manhastro\.net$/, // Adicionados
       /g1\.globo\.com$/
     ],
     maliciousPatterns: [
@@ -51,9 +52,9 @@
       patterns: 4,
       malicious: 12
     },
-    proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=', // Adicionado
+    proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.9',
+    version: '1.4.10',
     brand: 'Arx Intel'
   };
 
@@ -115,6 +116,16 @@
       }
     }
     console.log(`[${config.brand}] Bloqueados ${blockedCount} elementos`);
+
+    // Monitorar falhas de imagens
+    document.querySelectorAll('img').forEach(img => {
+      img.onerror = () => {
+        console.warn(`[${config.brand}] Falha ao carregar imagem: ${img.src}`);
+      };
+      img.onload = () => {
+        console.log(`[${config.brand}] Imagem carregada com sucesso: ${img.src}`);
+      };
+    });
   }
 
   async function acceptCookies() {
@@ -253,9 +264,9 @@
           console.warn(`[${config.brand}] Requisição bloqueada: ${url}`);
           return new Response(null, { status: 403 });
         }
-        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && url.startsWith('/')) {
-          args[0] = config.proxyBase + encodeURIComponent(urlObj.href);
-          console.log(`[${config.brand}] Requisição reescrita pelo proxy: ${args[0]}`);
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+          console.log(`[${config.brand}] Requisição de imagem ou script permitida: ${url}`);
+          return origFetch(...args); // Permitir sem reescrita
         }
       }
       return origFetch(...args);
@@ -270,9 +281,9 @@
           console.warn(`[${config.brand}] Requisição XHR bloqueada: ${url}`);
           return;
         }
-        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && url.startsWith('/')) {
-          args[1] = config.proxyBase + encodeURIComponent(urlObj.href);
-          console.log(`[${config.brand}] Requisição XHR reescrita pelo proxy: ${args[1]}`);
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+          console.log(`[${config.brand}] Requisição XHR permitida: ${url}`);
+          return origXhrOpen.apply(this, args); // Permitir sem reescrita
         }
       }
       return origXhrOpen.apply(this, args);
