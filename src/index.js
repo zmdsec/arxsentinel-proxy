@@ -37,10 +37,11 @@ const config = {
     "nav", "menu", "navbar", "nav-link", "menu-item",
     "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
     "news-title", "headline-link", "article-link",
-    "works-link", "obras-link", "manga-list" // Adicionados pra /obras
+    "works-link", "obras-link", "manga-list", "series-link", "manga-menu" // Adicionados
   ],
-  trustedPaths: [ // Adicionado
-    /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/
+  trustedPaths: [
+    /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/,
+    /\/series/, /\/works/, /\/titles/, /\/catalog/ // Adicionados
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
@@ -66,7 +67,7 @@ const config = {
   proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
   brand: {
     name: 'Arx Intel',
-    version: '1.9.14',
+    version: '1.9.15',
     website: 'https://arxintel.com'
   },
   heuristicWeights: {
@@ -100,7 +101,7 @@ function scoreElemento(el, targetUrl) {
     }
     if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
     if (config.whiteClassHints.some(hint => className.includes(hint))) return 0;
-    if (tag === 'a' && (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(src)))) return 0; // Adicionado trustedPaths
+    if (tag === 'a' && (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(src)))) return 0;
 
     if (config.keywords.some(w => txt.includes(w))) score += config.heuristicWeights.keywords;
     if (["iframe", "aside"].includes(tag)) score += config.heuristicWeights.tags[tag] || 0;
@@ -140,7 +141,7 @@ function sanitizeHTML(html, targetUrl) {
             console.log(`[${config.brand.name}] Script bloqueado: ${src || 'inline'}`);
             return;
           }
-          if (src && /reader\.js|lazyload\.js|image-loader|manga-loader/.test(src)) {
+          if (src && /reader\.js|lazyload\.js|image-loader|manga-loader|navigation\.js|menu\.js/.test(src)) {
             console.log(`[${config.brand.name}] Script essencial permitido: ${src}`);
             return;
           }
@@ -174,13 +175,10 @@ function sanitizeHTML(html, targetUrl) {
       try {
         const decodedUrl = decodeURIComponent(url);
         const urlObj = new URL(decodedUrl, targetUrl);
-        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) { // Adicionado trustedPaths
-          if (el.tagName.toLowerCase() === 'img' || (el.tagName.toLowerCase() === 'script' && /reader\.js|lazyload\.js|image-loader|manga-loader/.test(url))) {
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
+          if (el.tagName.toLowerCase() === 'img' || (el.tagName.toLowerCase() === 'script' && /reader\.js|lazyload\.js|image-loader|manga-loader|navigation\.js|menu\.js/.test(url))) {
             el.setAttribute(attr, urlObj.href);
             console.log(`[${config.brand.name}] URL preservada: ${url}`);
-          } else if (el.tagName.toLowerCase() === 'a' && (config.navigationClasses.some(c => el.className?.toLowerCase?.().includes(c)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname)))) {
-            el.setAttribute(attr, config.proxyBase + encodeURIComponent(urlObj.href));
-            console.log(`[${config.brand.name}] Link de navegação reescrito pelo proxy: ${url} -> ${el.getAttribute(attr)}`);
           } else {
             el.setAttribute(attr, config.proxyBase + encodeURIComponent(urlObj.href));
             console.log(`[${config.brand.name}] URL reescrita pelo proxy: ${url} -> ${el.getAttribute(attr)}`);
@@ -201,7 +199,7 @@ function sanitizeHTML(html, targetUrl) {
   document.querySelectorAll('[onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [onpagehide]').forEach(el => {
     const events = ['onclick', 'onmouseover', 'onfocus', 'onblur', 'onunload', 'onbeforeunload', 'onpagehide'];
     const urlObj = new URL(targetUrl);
-    if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && (config.navigationClasses.some(c => el.className?.toLowerCase?.().includes(c)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname)))) {
+    if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
       console.log(`[${config.brand.name}] Evento preservado para navegação: ${el.getAttribute('onclick')?.slice(0, 50) || 'inline'}...`);
       return;
     }
@@ -253,29 +251,39 @@ app.get('/proxy', async (req, res) => {
     return res.status(403).send('URL bloqueada pelo ArxSentinel.');
   }
 
-  try {
-    const response = await axios.get(url, {
-      timeout: 60000, // Aumentado pra 60s
-      headers: {
-        'User-Agent': `ArxSentinel/${config.brand.version}`,
-        'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,image/*,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Referer': urlObj.origin, // Adicionado
-        'Origin': urlObj.origin, // Adicionado
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+  const headers = {
+    'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36`,
+    'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,image/*,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Referer': urlObj.origin,
+    'Origin': urlObj.origin,
+    'Sec-Fetch-Dest': 'document', // Adicionado
+    'Sec-Fetch-Mode': 'navigate', // Adicionado
+    'Sec-Fetch-Site': 'same-origin', // Adicionado
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+  };
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await axios.get(url, {
+        timeout: 90000, // Aumentado pra 90s
+        headers
+      });
+      const cleaned = sanitizeHTML(response.data, url);
+      cache.set(cacheKey, cleaned);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.send(cleaned);
+      return;
+    } catch (err) {
+      console.error(`[${config.brand.name}] Erro ao carregar a página: ${url} - ${err.message}${err.response ? ` (HTTP ${err.response.status})` : ''} (Tentativa ${attempt}/3)`);
+      if (attempt === 3) {
+        res.status(500).send('Erro ao buscar ou processar o conteúdo.');
       }
-    });
-    const cleaned = sanitizeHTML(response.data, url);
-    cache.set(cacheKey, cleaned);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.send(cleaned);
-  } catch (err) {
-    console.error(`[${config.brand.name}] Erro ao carregar a página: ${url} - ${err.message}${err.response ? ` (HTTP ${err.response.status})` : ''}`);
-    res.status(500).send('Erro ao buscar ou processar o conteúdo.');
+    }
   }
 });
 
