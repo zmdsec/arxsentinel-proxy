@@ -10,7 +10,7 @@ const URL = require('url-parse');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const cache = new NodeCache({ stdTTL: 600 });
+const cache = new NodeCache({ stdTTL: 300 });
 
 const config = {
   blockPatterns: [
@@ -28,24 +28,28 @@ const config = {
     "chapter-content", "manga-image", "reader", "comic",
     "wrapper", "container", "root",
     "cookie-consent", "cookie-notice", "accept-cookies",
-    "consent-banner", "gdpr", "privacy-policy", "cookie-popup"
+    "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
+    "image-container", "manga-page", "reader-image" // Adicionado pra manhwa
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
     /webtoons\.com$/, /mangakakalot\.com$/, /readmanganato\.com$/,
     /mangadex\.org$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/,
-    /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./
+    /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
+    /img\./, /images\./, /static\./ // Adicionado pra imagens
   ],
   maliciousPatterns: [
     /eval\(/i,
     /Function\(/i,
     /window\.location\s*=\s*['"]http/i,
     /window\.open/i,
-    /document\.write/i
+    /document\.write/i,
+    /requestAnimationFrame/i,
+    /Promise\.resolve/i
   ],
   brand: {
     name: 'Arx Intel',
-    version: '1.9.3',
+    version: '1.9.5',
     website: 'https://arxintel.com'
   }
 };
@@ -61,18 +65,21 @@ function scoreElemento(el, targetUrl) {
     const html = el.outerHTML || "";
     const txt = el.textContent?.toLowerCase() || "";
     const tag = el.tagName?.toLowerCase() || "";
-    const src = el.src || el.getAttribute('href') || "";
+    const src = el.src || el.getAttribute('href') || el.getAttribute('data-href') || "";
 
-    if (src && config.trustedDomains.some(rx => rx.test(new URL(src, targetUrl).hostname))) return 0;
+    if (src && (src.startsWith('data:image/') || config.trustedDomains.some(rx => rx.test(new URL(src, targetUrl).hostname)))) return 0;
     if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
+    if (config.whiteClassHints.some(hint => el.className?.toLowerCase?.().includes(hint))) return 0;
+
     if (config.keywords.some(w => txt.includes(w))) score += 3;
-    if (["iframe", "aside", "section", "script"].includes(tag)) score += 1.5;
-    if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error|focus|blur|unload)/.test(a))) score += 1;
+    if (["iframe", "aside", "section", "script", "a"].includes(tag)) score += tag === 'section' ? 0.5 : 1.5;
+    if (tag === 'img') score += 0.2; // Baixo peso pra imagens
+    if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error|focus|blur|unload|beforeunload|pagehide)/.test(a))) score += 1;
     const style = el.style || {};
     if (style.position === "fixed" || parseInt(style.zIndex) > 100) score += 1.5;
     if (el.offsetHeight < 120 || el.offsetWidth < 300) score += 1.5;
     if (config.blockPatterns.some(rx => rx.test(html))) score += 4;
-    if (config.maliciousPatterns.some(rx => rx.test(html))) score += 10;
+    if (config.maliciousPatterns.some(rx => rx.test(html))) score += 12;
 
     return score;
   } catch {
@@ -88,18 +95,26 @@ function sanitizeHTML(html, targetUrl) {
 
   // Bloquear scripts e links maliciosos
   let blockedCount = 0;
-  document.querySelectorAll('script, iframe, a[href], div, aside, section').forEach(el => {
+  document.querySelectorAll('script, iframe, a[href], a[data-href], div, aside, section, img').forEach(el => {
     try {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whiteClassHints.some(hint => className.includes(hint))) return;
 
       const score = scoreElemento(el, targetUrl);
-      if (score >= 6) {
+      if (score >= 5 && el.tagName.toLowerCase() !== 'img') {
         if (el.tagName.toLowerCase() === 'script') {
-          // Neutralizar scripts maliciosos
           const src = el.src || el.textContent;
           if (config.maliciousPatterns.some(rx => rx.test(src)) || config.blockPatterns.some(rx => rx.test(src))) {
             el.remove();
+            blockedCount++;
+            return;
+          }
+        }
+        if (el.tagName.toLowerCase() === 'a' && (el.href || el.getAttribute('data-href'))) {
+          const href = el.href || el.getAttribute('data-href');
+          if (!config.trustedDomains.some(rx => rx.test(new URL(href, targetUrl).hostname))) {
+            el.setAttribute('href', 'javascript:void(0)');
+            el.setAttribute('data-arx-blocked', 'true');
             blockedCount++;
             return;
           }
@@ -111,12 +126,13 @@ function sanitizeHTML(html, targetUrl) {
     } catch { }
   });
 
-  // Reescreve URLs
+  // Reescreve URLs, preservando data:image/
   ['a[href]', 'img[src]', 'script[src]'].forEach(selector => {
     document.querySelectorAll(selector).forEach(el => {
       const attr = el.hasAttribute('href') ? 'href' : 'src';
       let url = el.getAttribute(attr);
       if (!url) return;
+      if (url.startsWith('data:image/')) return; // Preservar imagens data URI
       if (url.startsWith('http')) {
         if (!config.trustedDomains.some(rx => rx.test(new URL(url, targetUrl).hostname))) {
           el.setAttribute(attr, 'javascript:void(0)');
@@ -126,8 +142,25 @@ function sanitizeHTML(html, targetUrl) {
           el.setAttribute(attr, `${baseProxy}${encodeURIComponent(url)}`);
         }
       } else if (!url.startsWith('#') && !url.startsWith('javascript:')) {
-        const absolute = new URL(url, baseOrigin).href;
-        el.setAttribute(attr, `${baseProxy}${encodeURIComponent(absolute)}`);
+        try {
+          const absolute = new URL(url, baseOrigin).href;
+          el.setAttribute(attr, `${baseProxy}${encodeURIComponent(absolute)}`);
+        } catch (e) {
+          console.warn(`[${config.brand.name}] Falha ao reescrever URL: ${url}`);
+        }
+      }
+    });
+  });
+
+  // Neutralizar eventos inline
+  document.querySelectorAll('[onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [onpagehide]').forEach(el => {
+    const events = ['onclick', 'onmouseover', 'onfocus', 'onblur', 'onunload', 'onbeforeunload', 'onpagehide'];
+    events.forEach(event => {
+      const code = el.getAttribute(event);
+      if (code && config.maliciousPatterns.some(rx => rx.test(code))) {
+        el.removeAttribute(event);
+        el.setAttribute('data-arx-blocked', 'true');
+        blockedCount++;
       }
     });
   });
@@ -161,10 +194,10 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const response = await axios.get(url, {
-      timeout: 15000, // Aumentado para sites lentos
+      timeout: 15000,
       headers: {
         'User-Agent': `ArxSentinel/${config.brand.version}`,
-        'Accept': 'text/html,application/xhtml+xml',
+        'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,*/*',
         'Accept-Language': 'en-US,en;q=0.5'
       }
     });
