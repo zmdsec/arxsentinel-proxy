@@ -27,7 +27,8 @@
       /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
       /img\./, /images\./, /static\./,
       /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
-      /content\.manhastro\.net$/, /assets\.manhastro\.net$/, // Adicionados
+      /content\.manhastro\.net$/, /assets\.manhastro\.net$/,
+      /img\.manhastro\.net$/, /chapter\.manhastro\.net$/, // Adicionados
       /g1\.globo\.com$/
     ],
     maliciousPatterns: [
@@ -54,7 +55,7 @@
     },
     proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.10',
+    version: '1.4.11',
     brand: 'Arx Intel'
   };
 
@@ -117,7 +118,7 @@
     }
     console.log(`[${config.brand}] Bloqueados ${blockedCount} elementos`);
 
-    // Monitorar falhas de imagens
+    // Monitorar imagens
     document.querySelectorAll('img').forEach(img => {
       img.onerror = () => {
         console.warn(`[${config.brand}] Falha ao carregar imagem: ${img.src}`);
@@ -125,6 +126,12 @@
       img.onload = () => {
         console.log(`[${config.brand}] Imagem carregada com sucesso: ${img.src}`);
       };
+      // Forçar lazy-loading
+      if (img.hasAttribute('data-src') || img.hasAttribute('data-lazy-src')) {
+        const src = img.getAttribute('data-src') || img.getAttribute('data-lazy-src');
+        img.src = src;
+        console.log(`[${config.brand}] Lazy-loading forçado: ${src}`);
+      }
     });
   }
 
@@ -162,6 +169,18 @@
   }
 
   function protegerContraPopups() {
+    // Simular IntersectionObserver pra lazy-loading
+    window.IntersectionObserver = class {
+      constructor(callback) {
+        this.callback = callback;
+      }
+      observe(target) {
+        this.callback([{ isIntersecting: true, target }]);
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+
     const origOpen = window.open;
     window.open = function (...args) {
       const url = args[0];
@@ -266,7 +285,7 @@
         }
         if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
           console.log(`[${config.brand}] Requisição de imagem ou script permitida: ${url}`);
-          return origFetch(...args); // Permitir sem reescrita
+          return origFetch(...args);
         }
       }
       return origFetch(...args);
@@ -283,7 +302,7 @@
         }
         if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
           console.log(`[${config.brand}] Requisição XHR permitida: ${url}`);
-          return origXhrOpen.apply(this, args); // Permitir sem reescrita
+          return origXhrOpen.apply(this, args);
         }
       }
       return origXhrOpen.apply(this, args);
