@@ -1,5 +1,3 @@
-// index.js - ArxSentinel Proxy v1.9.2 com IA ArxCortex integrada
-
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -26,33 +24,26 @@ const config = {
     /track|ad|sponsored|banner|pixel|beacon|impression|click/i
   ],
   whiteClassHints: [
-    "main", "content", "article", "body", "texto", "chapter-content", "manga-image", "reader", "comic"
+    "main", "content", "article", "body", "texto",
+    "chapter-content", "manga-image", "reader", "comic",
+    "wrapper", "container", "root"
   ],
+  keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
-    /webtoons\.com$/, /mangakakalot\.com$/, /readmanganato\.com$/, /cdn\./,
-    /cloudflare\.com$/, /akamai\.net$/, /mangadex\.org$/
+    /webtoons\.com$/, /mangakakalot\.com$/, /readmanganato\.com$/,
+    /cdn\./, /cloudflare\.com$/, /akamai\.net$/
   ],
   brand: {
     name: 'Arx Intel',
-    version: '1.9.2'
+    version: '1.9.2',
+    website: 'https://arxintel.com'
   }
 };
 
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "*"],
-      imgSrc: ["'self'", "data:", "*"],
-      styleSrc: ["'self'", "'unsafe-inline'"]
-    }
-  }
-}));
-
+// Segurança leve (CSP desativado para compatibilidade)
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 app.use(cors({ origin: '*', methods: ['GET'] }));
-
-// Servir script da IA
 app.use('/client', express.static(__dirname));
 
 function scoreElemento(el, targetUrl) {
@@ -64,15 +55,13 @@ function scoreElemento(el, targetUrl) {
     const src = el.src || el.getAttribute('href') || "";
 
     if (src && config.trustedDomains.some(rx => rx.test(new URL(src, targetUrl).hostname))) return 0;
-    if (txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy') || txt.includes('aceitar')) return 0;
-
-    if (["iframe", "aside", "section"].includes(tag)) score += 1.5;
-    if (tag === "script") score += 0.5;
-    if ([...el.attributes].some(a => /onload|onclick|onmouseover|onerror/.test(a.name))) score += 1;
-    if (el.style && (parseInt(el.style.zIndex) > 100 || el.style.position === "fixed")) score += 1.5;
-    if (tag !== 'img' && (el.offsetHeight < 120 || el.offsetWidth < 300)) score += 1.5;
+    if (config.keywords.some(w => txt.includes(w))) score += 3;
+    if (["iframe", "aside", "section", "script"].includes(tag)) score += 1.5;
+    if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error)/.test(a))) score += 1;
+    const style = el.style || {};
+    if (style.position === "fixed" || parseInt(style.zIndex) > 100) score += 1.5;
+    if (el.offsetHeight < 120 || el.offsetWidth < 300) score += 1.5;
     if (config.blockPatterns.some(rx => rx.test(html))) score += 4;
-    if (config.blockPatterns.some(rx => rx.test(txt))) score += 3;
 
     return score;
   } catch {
@@ -86,21 +75,23 @@ function sanitizeHTML(html, targetUrl) {
   const baseProxy = 'https://arxsentinel-proxy.onrender.com/proxy?url=';
   const baseOrigin = new URL(targetUrl).origin;
 
+  // IA: bloqueia apenas elementos com score >= 8
   let blockedCount = 0;
   document.querySelectorAll('iframe, script, div, aside, section').forEach(el => {
     try {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whiteClassHints.some(hint => className.includes(hint))) return;
       const score = scoreElemento(el, targetUrl);
-      if (score >= 5) {
+      if (score >= 8) {
         el.setAttribute("data-arx-hidden", "true");
         el.style.display = "none";
         blockedCount++;
       }
-    } catch {}
+    } catch { }
   });
 
-  ['a[href]', 'img[src]', 'script[src]', 'link[href]', 'source[src]'].forEach(selector => {
+  // Reescreve apenas <a> e <img>
+  ['a[href]', 'img[src]'].forEach(selector => {
     document.querySelectorAll(selector).forEach(el => {
       const attr = el.hasAttribute('href') ? 'href' : 'src';
       let url = el.getAttribute(attr);
@@ -114,18 +105,20 @@ function sanitizeHTML(html, targetUrl) {
     });
   });
 
+  // Base tag para resolver caminhos relativos
   const baseTag = document.createElement('base');
   baseTag.href = baseOrigin;
   document.head.appendChild(baseTag);
 
+  // IA cliente (opcional)
   let cortexScript = '';
   try {
     cortexScript = fs.readFileSync(__dirname + '/arxCortex.client.js', 'utf8');
   } catch (e) {
-    console.error(`[${config.brand.name}] Erro ao carregar IA:`, e.message);
+    console.error(`[${config.brand.name}] Falha ao carregar arxCortex.client.js`);
   }
   const script = `<script>${cortexScript}</script>`;
-  console.log(`[${config.brand.name}] Bloqueados ${blockedCount} elementos em ${targetUrl}`);
+  console.log(`[${config.brand.name}] Bloqueados ${blockedCount} elementos no servidor (${targetUrl})`);
   return dom.serialize().replace('</head>', `${script}</head>`);
 }
 
@@ -141,21 +134,14 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const response = await axios.get(url, {
-      responseType: 'arraybuffer',
+      timeout: 10000,
       headers: {
-        'User-Agent': `ArxSentinel/${config.brand.version} (${config.brand.name})`,
-        'Accept': '*/*'
+        'User-Agent': `ArxSentinel/${config.brand.version}`,
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.5'
       }
     });
-
-    const contentType = response.headers['content-type'];
-    if (!contentType.includes('text/html')) {
-      res.setHeader('Content-Type', contentType);
-      return res.send(response.data);
-    }
-
-    const html = response.data.toString('utf8');
-    const cleaned = sanitizeHTML(html, url);
+    const cleaned = sanitizeHTML(response.data, url);
     cache.set(cacheKey, cleaned);
     res.send(cleaned);
   } catch (err) {
@@ -165,5 +151,5 @@ app.get('/proxy', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🛡️ ArxSentinel Proxy v${config.brand.version} - Ativo em http://localhost:${PORT}`);
+  console.log(`🛡️ ArxSentinel Proxy ${config.brand.version} rodando: http://localhost:${PORT}`);
 });
