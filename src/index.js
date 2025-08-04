@@ -38,12 +38,12 @@ const config = {
     "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
     "news-title", "headline-link", "article-link",
     "works-link", "obras-link", "manga-list", "series-link", "manga-menu",
-    "main-nav", "series-menu", "category-link", "nav-item", "menu-link" // Adicionados
+    "main-nav", "series-menu", "category-link", "nav-item", "menu-link"
   ],
   trustedPaths: [
     /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/,
     /\/series/, /\/works/, /\/home/, /\/index/, /\/catalog/, /\/library/,
-    /\/mangas/, /\/archive/ // Adicionados
+    /\/mangas/, /\/archive/
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
@@ -69,7 +69,7 @@ const config = {
   proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
   brand: {
     name: 'Arx Intel',
-    version: '1.9.16',
+    version: '1.9.17',
     website: 'https://arxintel.com'
   },
   heuristicWeights: {
@@ -143,7 +143,7 @@ function sanitizeHTML(html, targetUrl) {
             console.log(`[${config.brand.name}] Script bloqueado: ${src || 'inline'} (motivo: padrão malicioso ou de anúncio)`);
             return;
           }
-          if (src && /reader\.js|lazyload\.js|image-loader|manga-loader|navigation\.js|menu\.js|chapter-loader|site-nav/.test(src)) {
+          if (src && /reader\.js|lazyload\.js|image-loader|manga-loader|navigation\.js|menu\.js|chapter-loader|site-nav|main-nav/.test(src)) {
             console.log(`[${config.brand.name}] Script essencial permitido: ${src}`);
             return;
           }
@@ -170,17 +170,16 @@ function sanitizeHTML(html, targetUrl) {
 
   document.querySelectorAll('a[href]').forEach(el => {
     let url = el.getAttribute('href');
-    if (!url) return;
-    if (url.startsWith('data:')) return;
+    if (!url || url.startsWith('javascript:') || url.startsWith('#') || url.startsWith('data:')) return;
     try {
       const decodedUrl = decodeURIComponent(url);
       const urlObj = new URL(decodedUrl, targetUrl);
       const hostname = urlObj.hostname;
       const pathname = urlObj.pathname;
       if (config.trustedDomains.some(rx => rx.test(hostname)) || config.trustedPaths.some(rx => rx.test(pathname))) {
-        const newUrl = decodedUrl.startsWith('/') ? config.proxyBase + encodeURIComponent(urlObj.href) : urlObj.href;
+        const newUrl = config.proxyBase + encodeURIComponent(urlObj.href);
         el.setAttribute('href', newUrl);
-        console.log(`[${config.brand.name}] Link preservado e reescrito: ${url} -> ${newUrl}`);
+        console.log(`[${config.brand.name}] Link reescrito para proxy: ${url} -> ${newUrl}`);
       } else {
         el.setAttribute('href', 'javascript:void(0)');
         el.setAttribute('data-arx-blocked', 'true');
@@ -193,24 +192,39 @@ function sanitizeHTML(html, targetUrl) {
     }
   });
 
-  document.querySelectorAll('[onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [onpagehide]').forEach(el => {
-    const events = ['onclick', 'onmouseover', 'onfocus', 'onblur', 'onunload', 'onbeforeunload', 'onpagehide'];
+  document.querySelectorAll('[onclick]').forEach(el => {
     const className = el.className?.toLowerCase?.() || "";
     const href = el.getAttribute('href') || '';
-    if (config.trustedDomains.some(rx => rx.test(new URL(targetUrl).hostname)) && 
-        (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(href)))) {
-      console.log(`[${config.brand.name}] Evento preservado para navegação: ${el.getAttribute('onclick')?.slice(0, 50) || 'inline'}...`);
+    const onclick = el.getAttribute('onclick') || '';
+    if ((config.trustedDomains.some(rx => rx.test(new URL(targetUrl).hostname)) || config.trustedPaths.some(rx => rx.test(href))) &&
+        (config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(href)) || /window\.location|location\.href/.test(onclick))) {
+      const match = onclick.match(/['"]([^'"]+)['"]/i);
+      if (match) {
+        const url = match[1];
+        try {
+          const urlObj = new URL(url, targetUrl);
+          if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
+            const newUrl = config.proxyBase + encodeURIComponent(urlObj.href);
+            el.setAttribute('onclick', `window.location.href='${newUrl}'`);
+            console.log(`[${config.brand.name}] Evento onclick reescrito para proxy: ${url} -> ${newUrl}`);
+          } else {
+            el.removeAttribute('onclick');
+            el.setAttribute('data-arx-blocked', 'true');
+            blockedCount++;
+            console.log(`[${config.brand.name}] Evento onclick bloqueado: ${onclick.slice(0, 50)}... (motivo: domínio não confiável)`);
+          }
+        } catch (e) {
+          console.warn(`[${config.brand.name}] Falha ao reescrever onclick: ${onclick} - ${e.message}`);
+        }
+      }
       return;
     }
-    events.forEach(event => {
-      const code = el.getAttribute(event);
-      if (code && config.maliciousPatterns.some(rx => rx.test(code)) && !/window\.location|location\.href/.test(code)) {
-        el.removeAttribute(event);
-        el.setAttribute('data-arx-blocked', 'true');
-        blockedCount++;
-        console.log(`[${config.brand.name}] Evento bloqueado: ${event} - ${code.slice(0, 50)}...`);
-      }
-    });
+    if (config.maliciousPatterns.some(rx => rx.test(onclick))) {
+      el.removeAttribute('onclick');
+      el.setAttribute('data-arx-blocked', 'true');
+      blockedCount++;
+      console.log(`[${config.brand.name}] Evento onclick bloqueado: ${onclick.slice(0, 50)}... (motivo: padrão malicioso)`);
+    }
   });
 
   const baseTag = document.createElement('base');
