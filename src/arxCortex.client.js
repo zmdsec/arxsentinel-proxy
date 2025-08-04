@@ -25,12 +25,13 @@
       "chapter-nav", "chapter-link", "next-chapter", "prev-chapter",
       "news-title", "headline-link", "article-link",
       "works-link", "obras-link", "manga-list", "series-link", "manga-menu",
-      "main-nav", "series-menu", "category-link", "nav-item", "menu-link"
+      "main-nav", "series-menu", "category-link", "nav-item", "menu-link",
+      "site-nav", "top-menu", "chapter-list", "manga-nav" // Adicionados
     ],
     trustedPaths: [
       /\/obras/, /\/manga/, /\/chapter/, /\/noticia/, /\/politica/,
       /\/series/, /\/works/, /\/home/, /\/index/, /\/catalog/, /\/library/,
-      /\/mangas/, /\/archive/
+      /\/mangas/, /\/archive/, /\/manga-list/, /\/chapter-list/, /\/series-list/ // Adicionados
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
@@ -55,7 +56,7 @@
     ],
     proxyBase: 'https://arxsentinel-proxy.onrender.com/proxy?url=',
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.15',
+    version: '1.4.16',
     brand: 'Arx Intel'
   };
 
@@ -142,6 +143,31 @@
         const src = img.getAttribute('data-src') || img.getAttribute('data-lazy-src');
         img.src = src;
         console.log(`[${config.brand}] Lazy-loading forçado: ${src}`);
+      }
+    });
+
+    document.querySelectorAll('[onclick]').forEach(el => {
+      const onclick = el.getAttribute('onclick') || '';
+      const className = el.className?.toLowerCase?.() || "";
+      const href = el.getAttribute('href') || '';
+      if ((config.navigationClasses.some(c => className.includes(c)) || config.trustedPaths.some(rx => rx.test(href)) || /window\.location|location\.href|location\.assign|location\.replace/.test(onclick))) {
+        const match = onclick.match(/['"]([^'"]+)['"]/i) || onclick.match(/location\.(?:href|assign|replace)\s*=\s*['"]([^'"]+)['"]/i);
+        if (match) {
+          const url = match[1];
+          try {
+            const urlObj = new URL(url, window.location.href);
+            if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
+              const newUrl = config.proxyBase + encodeURIComponent(urlObj.href);
+              el.setAttribute('onclick', `window.location.href='${newUrl}'`);
+              console.log(`[${config.brand}] Evento onclick reescrito para proxy: ${url} -> ${newUrl}`);
+            } else {
+              el.removeAttribute('onclick');
+              console.log(`[${config.brand}] Evento onclick bloqueado: ${onclick.slice(0, 50)}... (motivo: domínio não confiável)`);
+            }
+          } catch (e) {
+            console.warn(`[${config.brand}] Falha ao reescrever onclick: ${onclick} - ${e.message}`);
+          }
+        }
       }
     });
   }
@@ -237,17 +263,10 @@
           const urlObj = new URL(decodedHref, window.location.href);
           if (config.trustedDomains.some(rx => rx.test(urlObj.hostname)) || config.trustedPaths.some(rx => rx.test(urlObj.pathname))) {
             const newHref = config.proxyBase + encodeURIComponent(urlObj.href);
-            if (target.tagName.toLowerCase() === 'a') {
-              e.preventDefault();
-              e.stopPropagation();
-              window.location.href = newHref;
-              console.log(`[${config.brand}] Link clicado reescrito para proxy: ${decodedHref} -> ${newHref}`);
-            } else if (onclick) {
-              e.preventDefault();
-              e.stopPropagation();
-              window.location.href = newHref;
-              console.log(`[${config.brand}] Evento onclick reescrito para proxy: ${decodedHref} -> ${newHref}`);
-            }
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = newHref;
+            console.log(`[${config.brand}] Link clicado reescrito para proxy: ${decodedHref} -> ${newHref}`);
           } else {
             e.preventDefault();
             e.stopPropagation();
@@ -262,7 +281,7 @@
     const origRequestAnimationFrame = window.requestAnimationFrame;
     window.setTimeout = function (fn, ...args) {
       const code = fn.toString();
-      if (config.maliciousPatterns.some(rx => rx.test(code))) {
+      if (config.maliciousPatterns.some(rx => rx.test(code)) && !/window\.location|location\.href|location\.assign|location\.replace/.test(code)) {
         console.warn(`[${config.brand}] Timeout malicioso bloqueado: ${code.slice(0, 50)}...`);
         return;
       }
@@ -270,7 +289,7 @@
     };
     window.setInterval = function (fn, ...args) {
       const code = fn.toString();
-      if (config.maliciousPatterns.some(rx => rx.test(code))) {
+      if (config.maliciousPatterns.some(rx => rx.test(code)) && !/window\.location|location\.href|location\.assign|location\.replace/.test(code)) {
         console.warn(`[${config.brand}] Interval malicioso bloqueado: ${code.slice(0, 50)}...`);
         return;
       }
@@ -278,7 +297,7 @@
     };
     window.requestAnimationFrame = function (fn) {
       const code = fn.toString();
-      if (config.maliciousPatterns.some(rx => rx.test(code))) {
+      if (config.maliciousPatterns.some(rx => rx.test(code)) && !/window\.location|location\.href|location\.assign|location\.replace/.test(code)) {
         console.warn(`[${config.brand}] AnimationFrame malicioso bloqueado: ${code.slice(0, 50)}...`);
         return;
       }
