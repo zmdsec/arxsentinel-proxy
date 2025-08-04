@@ -30,7 +30,8 @@ const config = {
     "cookie-consent", "cookie-notice", "accept-cookies",
     "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
     "image-container", "manga-page", "reader-image",
-    "reader-area", "chapter-image", "manga-reader", "chapter-container" // Adicionado
+    "reader-area", "chapter-image", "manga-reader", "chapter-container",
+    "news", "noticia", "headline" // Adicionado pra G1
   ],
   keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
   trustedDomains: [
@@ -38,7 +39,8 @@ const config = {
     /mangadex\.org$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/,
     /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
     /img\./, /images\./, /static\./,
-    /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/ // Adicionado
+    /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
+    /g1\.globo\.com$/ // Adicionado pra G1
   ],
   maliciousPatterns: [
     /eval\(/i,
@@ -51,7 +53,7 @@ const config = {
   ],
   brand: {
     name: 'Arx Intel',
-    version: '1.9.7',
+    version: '1.9.8',
     website: 'https://arxintel.com'
   }
 };
@@ -74,9 +76,9 @@ function scoreElemento(el, targetUrl) {
     if (config.whiteClassHints.some(hint => el.className?.toLowerCase?.().includes(hint))) return 0;
 
     if (config.keywords.some(w => txt.includes(w))) score += 3;
-    if (["iframe", "aside", "script", "a"].includes(tag)) score += 1.5;
-    if (["section", "div"].includes(tag)) score += 0.2; // Reduzido pra section, div
-    if (tag === 'img') score += 0; // Ignorar imagens
+    if (["iframe", "aside", "script"].includes(tag)) score += 1.5;
+    if (["a"].includes(tag)) score += 0.5; // Reduzido pra links
+    if (["section", "div", "img"].includes(tag)) score += 0; // Ignorar div, section, img
     if (el.getAttributeNames?.()?.some(a => /on(load|click|mouseover|error|focus|blur|unload|beforeunload|pagehide)/.test(a))) score += 1;
     const style = el.style || {};
     if (style.position === "fixed" || parseInt(style.zIndex) > 100) score += 1.5;
@@ -98,7 +100,7 @@ function sanitizeHTML(html, targetUrl) {
 
   // Bloquear scripts e links maliciosos
   let blockedCount = 0;
-  document.querySelectorAll('script, iframe, a[href], a[data-href], aside').forEach(el => {
+  document.querySelectorAll('script, iframe, aside').forEach(el => {
     try {
       const className = el.className?.toLowerCase?.() || "";
       if (config.whiteClassHints.some(hint => className.includes(hint))) return;
@@ -112,16 +114,7 @@ function sanitizeHTML(html, targetUrl) {
             blockedCount++;
             return;
           }
-          if (src && /manhastro\.net/.test(new URL(src, targetUrl).hostname)) return;
-        }
-        if (el.tagName.toLowerCase() === 'a' && (el.href || el.getAttribute('data-href'))) {
-          const href = el.href || el.getAttribute('data-href');
-          if (!config.trustedDomains.some(rx => rx.test(new URL(href, targetUrl).hostname))) {
-            el.setAttribute('href', 'javascript:void(0)');
-            el.setAttribute('data-arx-blocked', 'true');
-            blockedCount++;
-            return;
-          }
+          if (src && /manhastro\.net|g1\.globo\.com/.test(new URL(src, targetUrl).hostname)) return;
         }
         el.setAttribute("data-arx-hidden", "true");
         el.style.display = "none";
@@ -130,8 +123,8 @@ function sanitizeHTML(html, targetUrl) {
     } catch { }
   });
 
-  // Preservar divs e sections de manhwa
-  document.querySelectorAll('div, section').forEach(el => {
+  // Preservar divs, sections e imagens
+  document.querySelectorAll('div, section, img').forEach(el => {
     const className = el.className?.toLowerCase?.() || "";
     if (config.whiteClassHints.some(hint => className.includes(hint))) {
       el.removeAttribute('data-arx-hidden');
@@ -139,7 +132,7 @@ function sanitizeHTML(html, targetUrl) {
     }
   });
 
-  // Reescreve URLs, preservando data:image/
+  // Reescreve URLs, preservando relativas em domínios confiáveis
   ['a[href]', 'img[src]', 'script[src]'].forEach(selector => {
     document.querySelectorAll(selector).forEach(el => {
       const attr = el.hasAttribute('href') ? 'href' : 'src';
@@ -147,10 +140,9 @@ function sanitizeHTML(html, targetUrl) {
       if (!url) return;
       if (url.startsWith('data:image/')) return;
       if (url.startsWith('http')) {
-        if (!config.trustedDomains.some(rx => rx.test(new URL(url, targetUrl).hostname))) {
-          el.setAttribute(attr, 'javascript:void(0)');
-          el.setAttribute('data-arx-blocked', 'true');
-          blockedCount++;
+        const urlObj = new URL(url, targetUrl);
+        if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) {
+          el.setAttribute(attr, url); // Preservar URL original
         } else {
           el.setAttribute(attr, `${baseProxy}${encodeURIComponent(url)}`);
         }
@@ -158,7 +150,7 @@ function sanitizeHTML(html, targetUrl) {
         try {
           const absolute = new URL(url, baseOrigin).href;
           if (config.trustedDomains.some(rx => rx.test(new URL(absolute, targetUrl).hostname))) {
-            el.setAttribute(attr, absolute); // Usar URL absoluta diretamente
+            el.setAttribute(attr, absolute); // Usar URL absoluta
           } else {
             el.setAttribute(attr, `${baseProxy}${encodeURIComponent(absolute)}`);
           }
@@ -170,9 +162,11 @@ function sanitizeHTML(html, targetUrl) {
     });
   });
 
-  // Neutralizar eventos inline
+  // Neutralizar eventos inline, exceto em domínios confiáveis
   document.querySelectorAll('[onclick], [onmouseover], [onfocus], [onblur], [onunload], [onbeforeunload], [onpagehide]').forEach(el => {
     const events = ['onclick', 'onmouseover', 'onfocus', 'onblur', 'onunload', 'onbeforeunload', 'onpagehide'];
+    const urlObj = new URL(targetUrl);
+    if (config.trustedDomains.some(rx => rx.test(urlObj.hostname))) return;
     events.forEach(event => {
       const code = el.getAttribute(event);
       if (code && config.maliciousPatterns.some(rx => rx.test(code))) {
@@ -212,7 +206,7 @@ app.get('/proxy', async (req, res) => {
 
   try {
     const response = await axios.get(url, {
-      timeout: 20000, // Aumentado pra sites lentos
+      timeout: 20000,
       headers: {
         'User-Agent': `ArxSentinel/${config.brand.version}`,
         'Accept': 'text/html,application/xhtml+xml,image/webp,image/apng,image/*,*/*;q=0.8',
