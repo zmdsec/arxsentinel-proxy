@@ -30,11 +30,13 @@
       /window\.location\s*=\s*['"]http/i,
       /window\.open/i,
       /setTimeout\s*\(\s*function/i,
-      /setInterval\s*\(\s*function/i
+      /setInterval\s*\(\s*function/i,
+      /location\.reload/i,
+      /document\.write/i
     ],
     heuristicWeights: {
       keywords: 3,
-      tags: { iframe: 1.5, aside: 1.5, section: 1.5, script: 0.3 },
+      tags: { iframe: 1.5, aside: 1.5, section: 1.5, script: 0.5 },
       events: 1,
       styles: 1.5,
       size: 1.5,
@@ -42,7 +44,7 @@
       malicious: 10
     },
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.2',
+    version: '1.4.3',
     brand: 'Arx Intel'
   };
 
@@ -74,7 +76,7 @@
       let score = 0;
       if (config.keywords.some(w => txt.includes(w))) score += config.heuristicWeights.keywords;
       if (config.heuristicWeights.tags[tag]) score += config.heuristicWeights.tags[tag];
-      if ([...el.attributes].some(a => /onload|onclick|onmouseover|onerror|onfocus/.test(a.name))) score += config.heuristicWeights.events;
+      if ([...el.attributes].some(a => /on(load|click|mouseover|error|focus|blur|unload)/.test(a.name))) score += config.heuristicWeights.events;
       const style = window.getComputedStyle(el);
       if (parseInt(style.zIndex) > 100 || style.position === "fixed") score += config.heuristicWeights.styles;
       if (el.offsetHeight < 120 || el.offsetWidth < 300) score += config.heuristicWeights.size;
@@ -167,11 +169,16 @@
     });
 
     // Bloquear eventos dinâmicos
-    ['click', 'mouseover', 'focus'].forEach(event => {
+    ['click', 'mouseover', 'focus', 'blur', 'unload'].forEach(event => {
       document.addEventListener(event, e => {
-        const target = e.target.closest('a[target="_blank"], [onclick], [onmouseover], [onfocus]');
+        const target = e.target.closest('a[target="_blank"], [onclick], [onmouseover], [onfocus], [onblur], [onunload]');
         if (target) {
-          const href = target.href || target.getAttribute('onclick')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] || target.getAttribute('onmouseover')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
+          const href = target.href || 
+                       target.getAttribute('onclick')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
+                       target.getAttribute('onmouseover')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
+                       target.getAttribute('onfocus')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
+                       target.getAttribute('onblur')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
+                       target.getAttribute('onunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
           if (href && !config.trustedDomains.some(rx => rx.test(new URL(href, window.location.href).hostname))) {
             e.preventDefault();
             e.stopPropagation();
@@ -227,8 +234,9 @@
       document.querySelectorAll('[data-arx-hidden]').forEach(el => {
         Object.defineProperty(el, 'offsetHeight', { configurable: true, value: 100 });
         Object.defineProperty(el, 'offsetWidth', { configurable: true, value: 100 });
+        Object.defineProperty(el, 'style', { configurable: true, get: () => ({ display: 'block' }) });
       });
-    }, 1000);
+    }, 500);
 
     // Monitorar visibilidade
     setInterval(() => {
@@ -236,7 +244,7 @@
         console.warn(`[${config.brand}] Redirecionamento oculto detectado`);
         window.stop();
       }
-    }, 500);
+    }, 250);
   }
 
   function observarMutacoes() {
@@ -252,7 +260,8 @@
 
   limparAds();
   setTimeout(() => acceptCookies(), 1000);
-  setTimeout(() => acceptCookies(), 3000);
+  setTimeout(() => acceptCookies(), 2000);
+  setTimeout(() => acceptCookies(), 4000);
   observarMutacoes();
   protegerContraPopups();
 
