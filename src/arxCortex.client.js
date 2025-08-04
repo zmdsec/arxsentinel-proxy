@@ -17,7 +17,8 @@
       "consent-banner", "gdpr", "privacy-policy", "cookie-popup",
       "accept-all", "cookie-accept", "consent-button", "cookie-btn",
       "image-container", "manga-page", "reader-image",
-      "reader-area", "chapter-image", "manga-reader", "chapter-container" // Adicionado
+      "reader-area", "chapter-image", "manga-reader", "chapter-container",
+      "news", "noticia", "headline" // Adicionado pra G1
     ],
     keywords: ["anuncio", "publicidade", "patrocinado", "promo", "oferta", "adchoices"],
     trustedDomains: [
@@ -25,7 +26,8 @@
       /mangadex\.org$/, /cdn\./, /cloudflare\.com$/, /akamai\.net$/,
       /cookiebot\.com$/, /onetrust\.com$/, /consensu\.org$/, /cmp\./,
       /img\./, /images\./, /static\./,
-      /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/ // Adicionado
+      /manhastro\.net$/, /cdn\.manhastro\.net$/, /media\.manhastro\.net$/,
+      /g1\.globo\.com$/ // Adicionado pra G1
     ],
     maliciousPatterns: [
       /eval\(/i,
@@ -42,7 +44,7 @@
     ],
     heuristicWeights: {
       keywords: 3,
-      tags: { iframe: 1.5, aside: 1.5, section: 0.2, script: 0.6, a: 1, img: 0, div: 0.2 }, // Reduzido pra div, section, img
+      tags: { iframe: 1.5, aside: 1.5, script: 0.6, a: 1, img: 0, div: 0.1, section: 0.1 }, // Reduzido pra div, section, img
       events: 1,
       styles: 1.5,
       size: 1.5,
@@ -50,7 +52,7 @@
       malicious: 12
     },
     secretKey: 'arx_intel_secret_2025',
-    version: '1.4.7',
+    version: '1.4.8',
     brand: 'Arx Intel'
   };
 
@@ -163,7 +165,8 @@
       Object.defineProperty(window.location, prop, {
         configurable: true,
         set(value) {
-          if (config.blockPatterns.some(rx => rx.test(value)) || !config.trustedDomains.some(rx => rx.test(new URL(value, window.location.href).hostname))) {
+          const urlObj = new URL(value, window.location.href);
+          if (config.blockPatterns.some(rx => rx.test(value)) || (!config.trustedDomains.some(rx => rx.test(urlObj.hostname)) && !value.startsWith('/'))) {
             console.warn(`[${config.brand}] Redirecionamento bloqueado: ${value}`);
             return;
           }
@@ -185,7 +188,7 @@
                        target.getAttribute('onblur')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1] ||
                        target.getAttribute('onbeforeunload')?.match(/['"](https?:\/\/[^'"]+)['"]/i)?.[1];
-          if (href && !config.trustedDomains.some(rx => rx.test(new URL(href, window.location.href).hostname))) {
+          if (href && !config.trustedDomains.some(rx => rx.test(new URL(href, window.location.href).hostname)) && !href.startsWith('/')) {
             e.preventDefault();
             e.stopPropagation();
             console.log(`[${config.brand}] Ação externa bloqueada: ${href}`);
